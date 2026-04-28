@@ -1,10 +1,14 @@
 local M = {}
 
 --- Setup the plugin. Call this from your Neovim config.
----@param opts table|nil  User configuration (see config.lua for available keys)
+---@param opts tablature.UserConfig|nil  User configuration (see config.lua for available keys)
 function M.setup(opts)
 	local config = require("tablature.config")
 	config.set(opts)
+	if config.options.default_mappings then
+		vim.keymap.set("n", "<leader>ti", "<Plug>(tablature-insert)")
+		vim.keymap.set("n", "<leader>te", "<Plug>(tablature-edit)")
+	end
 end
 
 M.enter = function()

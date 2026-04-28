@@ -65,6 +65,9 @@ Tab mode exits automatically if you leave the buffer or window.
 
 ```lua
 require("tablature").setup({
+  -- Whether or not to register the default keymaps
+  default_mappings = true,
+
   -- How many sub-columns per beat (4 = sixteenth notes, 2 = eighth notes, etc.)
   divisions = 4,
 
