@@ -1,4 +1,3 @@
--- tablature/state.lua
 -- Centralized mutable runtime state. Only one tab-mode session at a time.
 
 local M = {}

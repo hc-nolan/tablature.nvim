@@ -72,11 +72,26 @@ function M.insert_below_cursor(bufnr)
 	local label_width = cfg.label_width
 	local first_col = label_width + cfg.measure_sep:len()
 	local lines = M.generate()
-	-- Insert after current line (nvim_buf_set_lines end is exclusive, 0-indexed)
+	local staff_top = M.find_staff_top(bufnr, row - 1)
+	local cursor_position = row + 1
+	if staff_top then
+		-- Already inside a staff, insert below
+		row = staff_top + #cfg.strings
+
+		-- Insert 2 blank lines in between staves
+		for _ = 1, 2 do
+			table.insert(lines, 1, "")
+		end
+		-- Account for the new lines in cursor row
+		-- find_staff_top returns 0-indexed row, we need 1-indexed, so account for
+		-- that too
+		cursor_position = row + 3
+	end
+
 	vim.api.nvim_buf_set_lines(bufnr, row, row, false, lines)
 	-- Move cursor to top-left editable position of the new staff
 	-- Row becomes (row + 1) in 1-indexed; col is after the string label + beat_sep (col 2, 0-indexed)
-	vim.api.nvim_win_set_cursor(0, { row + 1, first_col })
+	vim.api.nvim_win_set_cursor(0, { cursor_position, first_col })
 end
 
 --- Detect if the given line number (0-indexed) is part of a staff block.
