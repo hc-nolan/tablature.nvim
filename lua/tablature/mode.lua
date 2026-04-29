@@ -3,19 +3,6 @@
 --   1. Save any existing buffer-local keymaps that we're about to shadow.
 --   2. Install buffer-local keymaps that intercept character input.
 --   3. On exit, restore the original keymaps and clean up.
---
--- Behaviours:
---   - Printable chars  → write character at cursor position, advance right
---   - h / <Left>       → move left one sub-column
---   - l / <Right>      → move right one sub-column
---   - H                → move left one beat
---   - L                → move right one beat
---   - {                → move left one measure
---   - }                → move right one measure
---   - j / k            → move down/up one string (row)
---   - <Space>          → write filler char (clear the cell)
---   - <BS>             → move left and clear
---   - <Esc> / q        → exit tab mode
 
 local config = require("tablature.config")
 local state = require("tablature.state")
@@ -140,7 +127,7 @@ local function set_tab_keymap(bufnr, key, callback, desc)
 	TAB_MODE_KEYS[#TAB_MODE_KEYS + 1] = key
 end
 
-local function move_left()
+function M.move_left()
 	local ctx = get_cursor_context()
 	if not ctx then
 		return
@@ -154,7 +141,7 @@ local function move_left()
 	move_to(ctx, p)
 end
 
-local function move_right()
+function M.move_right()
 	local ctx = get_cursor_context()
 	if not ctx then
 		return
@@ -168,80 +155,91 @@ local function move_right()
 	move_to(ctx, p)
 end
 
+function M.move_previous_beat()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local p = vim.deepcopy(ctx.pos)
+	p.sub = 0
+	p.beat = p.beat - 1
+	move_to(ctx, p)
+end
+
+function M.move_next_beat()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local p = vim.deepcopy(ctx.pos)
+	p.sub = 0
+	p.beat = p.beat + 1
+	move_to(ctx, p)
+end
+
+function M.move_previous_measure()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local p = vim.deepcopy(ctx.pos)
+	p.sub = 0
+	p.beat = 0
+	p.measure = p.measure - 1
+	move_to(ctx, p)
+end
+
+function M.move_next_measure()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local p = vim.deepcopy(ctx.pos)
+	p.sub = 0
+	p.beat = 0
+	p.measure = p.measure + 1
+	move_to(ctx, p)
+end
+
+function M.move_next_string()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	move_to(ctx, ctx.pos, ctx.string_idx + 1)
+end
+
+function M.move_previous_string()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	move_to(ctx, ctx.pos, ctx.string_idx - 1)
+end
+
+function M.clear_cell()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, config.options.filler)
+end
+
+function M.clear_cell_and_move_left()
+	M.clear_cell()
+	M.move_left()
+end
+
 --- Install all tab-mode keymaps on the buffer.
 ---@param bufnr integer
 local function install_keymaps(bufnr)
 	TAB_MODE_KEYS = {}
 	saved_keymaps = {}
 
-	-- Movement
-	set_tab_keymap(bufnr, "h", move_left, "Tab mode: move left")
-	set_tab_keymap(bufnr, "<Left>", move_left, "Tab mode: move left")
-
-	set_tab_keymap(bufnr, "l", move_right, "Tab mode: move right")
-	set_tab_keymap(bufnr, "<Right>", move_right, "Tab mode: move right")
-
-	set_tab_keymap(bufnr, "H", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		local p = vim.deepcopy(ctx.pos)
-		p.sub = 0
-		p.beat = p.beat - 1
-		move_to(ctx, p)
-	end, "Tab mode: previous beat")
-
-	set_tab_keymap(bufnr, "L", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		local p = vim.deepcopy(ctx.pos)
-		p.sub = 0
-		p.beat = p.beat + 1
-		move_to(ctx, p)
-	end, "Tab mode: next beat")
-
-	set_tab_keymap(bufnr, "{", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		local p = vim.deepcopy(ctx.pos)
-		p.sub = 0
-		p.beat = 0
-		p.measure = p.measure - 1
-		move_to(ctx, p)
-	end, "Tab mode: previous measure")
-
-	set_tab_keymap(bufnr, "}", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		local p = vim.deepcopy(ctx.pos)
-		p.sub = 0
-		p.beat = 0
-		p.measure = p.measure + 1
-		move_to(ctx, p)
-	end, "Tab mode: next measure")
-
-	set_tab_keymap(bufnr, "j", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		move_to(ctx, ctx.pos, ctx.string_idx + 1)
-	end, "Tab mode: next string (lower pitch)")
-
-	set_tab_keymap(bufnr, "k", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		move_to(ctx, ctx.pos, ctx.string_idx - 1)
-	end, "Tab mode: prev string (higher pitch)")
+	local keys = config.options.tabmode_keys
+	for _, mapping in pairs(keys) do
+		set_tab_keymap(bufnr, mapping.key, mapping.func, mapping.desc)
+	end
 
 	-- Writing: fret numbers 0-9
 	for _, digit in ipairs({ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" }) do
@@ -250,28 +248,6 @@ local function install_keymaps(bufnr)
 			write_and_advance(d)
 		end, "Tab mode: write fret " .. d)
 	end
-
-	-- Space clears the current cell
-	set_tab_keymap(bufnr, "<Space>", function()
-		local ctx = get_cursor_context()
-		if not ctx then
-			return
-		end
-		staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, config.options.filler)
-	end, "Tab mode: clear cell")
-
-	-- Backspace: clear and move left
-	set_tab_keymap(bufnr, "<BS>", function()
-		move_left()
-		-- Then clear the cell we moved to (need fresh ctx after move)
-		local ctx2 = get_cursor_context()
-		if ctx2 then
-			staff.write_char(state.bufnr, ctx2.staff_top, ctx2.string_idx, ctx2.pos, config.options.filler)
-		end
-	end, "Tab mode: backspace")
-
-	set_tab_keymap(bufnr, "<Esc>", M.exit, "Tab mode: exit")
-	set_tab_keymap(bufnr, "q", M.exit, "Tab mode: exit")
 end
 
 --- Remove all tab-mode keymaps, restoring saved ones.
