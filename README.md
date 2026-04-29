@@ -56,17 +56,43 @@ While in tab mode the following keys are active:
 | `k`             | Move to previous string (higher)|
 | `0`–`9`         | Write fret number and advance   |
 | `<Space>`       | Clear cell (write filler char)  |
-| `<BS>`          | Move left and clear cell        |
+| `<BS>`          | Clear cell and move left        |
 | `<Esc>` / `q`   | Exit tab mode                   |
 
 Tab mode exits automatically if you leave the buffer or window.
+
+Tab mode keys are configured separately from `default_mappings` via the `tabmode_keys` option. Each entry specifies a `key`, a `func` to call, and a `desc`. You can remap, remove, or extend them freely:
+
+```lua
+require("tablature").setup({
+  tabmode_keys = {
+    -- Remap move-left to the arrow key only
+    {
+      key = "<Left>",
+      func = function() require("tablature.mode").move_left() end,
+      desc = "Tab mode: move left",
+    },
+    -- Add a custom action
+    {
+      key = "x",
+      func = function() require("tablature.mode").clear_cell() end,
+      desc = "Tab mode: delete",
+    },
+  },
+})
+```
+
+> **Note:** replacing `tabmode_keys` entirely removes all default bindings — include any defaults you want to keep.
 
 ## Configuration
 
 ```lua
 require("tablature").setup({
-  -- Whether or not to register the default keymaps
+  -- Whether or not to register the default keymaps (<leader>ti and <leader>te)
   default_mappings = true,
+
+  -- Tab mode key bindings (see "Tab mode" section above for details)
+  -- tabmode_keys = { ... },
 
   -- How many sub-columns per beat (4 = sixteenth notes, 2 = eighth notes, etc.)
   divisions = 4,
