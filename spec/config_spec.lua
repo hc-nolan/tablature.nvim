@@ -1,0 +1,41 @@
+require("helpers")
+
+local config = require("tablature.config")
+
+describe("config.set", function()
+	it("applies defaults when called with no arguments", function()
+		config.set()
+		assert.are.equal(true,  config.options.default_mappings)
+		assert.are.equal(4,     config.options.divisions)
+		assert.are.equal(4,     config.options.beats_per_measure)
+		assert.are.equal(2,     config.options.default_measures)
+		assert.are.equal("-",   config.options.filler)
+		assert.are.equal("|",   config.options.measure_sep)
+		assert.are.same({ "e", "B", "G", "D", "A", "E" }, config.options.strings)
+	end)
+
+	it("user values override defaults", function()
+		config.set({ divisions = 2, beats_per_measure = 3 })
+		assert.are.equal(2, config.options.divisions)
+		assert.are.equal(3, config.options.beats_per_measure)
+		-- non-overridden values stay at defaults
+		assert.are.equal(2, config.options.default_measures)
+	end)
+
+	it("derives label_width as the length of the longest string name", function()
+		config.set()
+		-- default strings are all 1 char ("e","B","G","D","A","E")
+		assert.are.equal(1, config.options.label_width)
+	end)
+
+	it("recomputes label_width for multi-char string names", function()
+		config.set({ strings = { "e", "B", "G", "D", "Ab", "Eb" } })
+		assert.are.equal(2, config.options.label_width)
+	end)
+
+	it("is safe to call multiple times — last call wins", function()
+		config.set({ divisions = 8 })
+		config.set({ divisions = 2 })
+		assert.are.equal(2, config.options.divisions)
+	end)
+end)
