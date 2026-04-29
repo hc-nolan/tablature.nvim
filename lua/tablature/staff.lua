@@ -1,18 +1,20 @@
 -- Handles generating, parsing, and mutating tab staff blocks in the buffer.
 --
--- A staff block looks like this (4 beats, 4 divisions each):
+-- A staff block looks like this (4 beats, 2 divisions each):
 --
---   e|----|----|----|----|
---   B|----|----|----|----|
---   G|----|----|----|----|
---   D|----|----|----|----|
---   A|----|----|----|----|
---   E|----|----|----|----|
+--   e|------|------|------|------|
+--   B|------|------|------|------|
+--   G|------|------|------|------|
+--   D|------|------|------|------|
+--   A|------|------|------|------|
+--   E|------|------|------|------|
 --
 -- Column layout per line:
---   <string_label> | <beat_sep> <div*filler> ... <beat_sep> ... |
+--   <string_label> | <beat_sep> <div*(filler*3)> ... <beat_sep> ... |
 --
--- Each beat is:  beat_sep + (filler * divisions)
+-- Each division is 3 chars: content + overflow + separator filler
+-- e.g. single-digit fret 5: `5--`  double-digit fret 12: `12-`
+-- Each beat is:  beat_sep + (3 * divisions) filler chars
 -- Final char  :  beat_sep (closing bar)
 
 local config = require("tablature.config")
@@ -39,7 +41,8 @@ local function build_line(string_label, measures, beats_per_measure, divisions, 
 
 	local parts = { padded, measure_sep }
 	for _ = 1, measures * beats_per_measure do
-		parts[#parts + 1] = string.rep(filler, divisions)
+		-- 3 filler chars per division: content + overflow + separator
+		parts[#parts + 1] = string.rep(filler, divisions * 3)
 		parts[#parts + 1] = measure_sep
 	end
 	return table.concat(parts)
@@ -171,27 +174,25 @@ function M.col_to_position(col)
 	end
 
 	local offset = col - content_start
-	local cell_width = div + sep_width -- each beat: div filler chars + trailing sep
+	local cell_width = div * 3 + sep_width -- each beat: (div * 3) filler chars + trailing sep
 
 	local total_beat = math.floor(offset / cell_width)
 	if total_beat > cfg.default_measures * bpm then
 		-- Cursor out of bounds
 		return nil
 	end
-	local sub = offset % cell_width
+	local char_pos = offset % cell_width
+	local sub_beat = math.floor(char_pos / 3)
 
-	-- If cursor is ON the separator at end of beat, treat as last sub of that beat
-	if sub == div then
-		-- cursor is on the separator itself — clamp to last valid sub
-		sub = div - 1
-	elseif sub >= div then
-		return nil -- shouldn't happen
+	-- If cursor is on or past the beat separator, clamp or bail
+	if char_pos >= div * 3 then
+		return nil
 	end
 
 	local measure = math.floor(total_beat / bpm)
 	local beat = total_beat % bpm
 
-	return { measure = measure, beat = beat, sub = sub }
+	return { measure = measure, beat = beat, sub = sub_beat }
 end
 
 --- Given a position {measure, beat, sub}, return the 0-indexed column.
@@ -203,10 +204,10 @@ function M.position_to_col(pos)
 	local bpm = cfg.beats_per_measure
 	local label_width = cfg.label_width
 	local sep_width = cfg.measure_sep:len()
-	local cell_width = div + sep_width
+	local cell_width = div * 3 + sep_width
 
 	local total_beat = pos.measure * bpm + pos.beat
-	return label_width + sep_width + total_beat * cell_width + pos.sub
+	return label_width + sep_width + total_beat * cell_width + pos.sub * 3
 end
 
 --- Write a character at (string_idx 0-indexed from top, measure, beat, sub)
@@ -225,8 +226,45 @@ function M.write_char(bufnr, staff_top, string_idx, pos, char)
 	end
 
 	-- Replace the single byte at col (assumes ASCII content)
-	local new_line = line:sub(1, col) .. char .. line:sub(col + 2)
+	-- If writing a filler, also clear the overflow slot
+	local cfg = config.options
+	local new_line
+	if char == cfg.filler then
+		new_line = line:sub(1, col) .. char .. cfg.filler .. line:sub(col + 3)
+	else
+		new_line = line:sub(1, col) .. char .. line:sub(col + 2)
+	end
 	vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
+end
+
+--- Write a two-digit fret at pos on the given string, and clear the overflow
+--- slot on all other strings (they get filler in both content and overflow).
+---@param bufnr integer
+---@param staff_top integer
+---@param string_idx integer  0-indexed
+---@param pos tablature.staff.position
+---@param tens string   first digit character
+---@param ones string   second digit character
+function M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
+	local cfg = config.options
+	local num_strings = #cfg.strings
+	local col = M.position_to_col(pos)
+
+	for i = 0, num_strings - 1 do
+		local row = staff_top + i
+		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+		if line then
+			local new_line
+			if i == string_idx then
+				-- Write both digits into content + overflow slots
+				new_line = line:sub(1, col) .. tens .. ones .. line:sub(col + 3)
+			else
+				-- Clear both slots on other strings
+				new_line = line:sub(1, col) .. cfg.filler .. cfg.filler .. line:sub(col + 3)
+			end
+			vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
+		end
+	end
 end
 
 return M

@@ -21,6 +21,12 @@ local M = {}
 
 M.defaults = {
 	default_mappings = true,
+	divisions = 4,
+	beats_per_measure = 4,
+	default_measures = 2,
+	strings = { "e", "B", "G", "D", "A", "E" },
+	filler = "-",
+	measure_sep = "|",
 	tabmode_keys = {
 		{
 			key = "h",
@@ -121,12 +127,6 @@ M.defaults = {
 			desc = "Tab mode: exit tab mode",
 		},
 	},
-	divisions = 4,
-	beats_per_measure = 4,
-	default_measures = 4,
-	strings = { "e", "B", "G", "D", "A", "E" },
-	filler = "-",
-	measure_sep = "|",
 }
 
 -- Merged config (populated by setup())

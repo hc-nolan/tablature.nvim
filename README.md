@@ -6,7 +6,7 @@ A guitar tablature editor for Neovim. Insert tab staff blocks into any buffer an
 
 - Insert formatted tab staff blocks inline in any buffer
 - Enter a tab editing mode with cursor-aware navigation
-- Fret numbers written at the cursor advance automatically
+- Write single or double-digit fret numbers at the cursor
 - Beat-column highlighting and position indicator while editing
 - Configurable tuning, time signature, and staff layout
 
@@ -54,7 +54,7 @@ While in tab mode the following keys are active:
 | `}`             | Move right one measure          |
 | `j`             | Move to next string (lower)     |
 | `k`             | Move to previous string (higher)|
-| `0`–`9`         | Write fret number and advance   |
+| `0`–`9`         | Write fret number (stays in place; type two digits for double-digit frets) |
 | `<Space>`       | Clear cell (write filler char)  |
 | `<BS>`          | Clear cell and move left        |
 | `<Esc>` / `q`   | Exit tab mode                   |
@@ -101,7 +101,7 @@ require("tablature").setup({
   beats_per_measure = 4,
 
   -- Number of measures inserted with <leader>ti
-  default_measures = 4,
+  default_measures = 2,
 
   -- String names, top to bottom (high to low pitch)
   strings = { "e", "B", "G", "D", "A", "E" },

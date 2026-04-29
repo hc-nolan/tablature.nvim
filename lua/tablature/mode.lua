@@ -66,11 +66,17 @@ local function move_to(ctx, new_pos, new_string_idx)
 		new_pos.beat = (bpm - (underflow % bpm)) % bpm
 	end
 
-	-- Clamp measure
-	new_pos.measure = math.max(0, math.min(default_measures - 1, new_pos.measure))
-
-	-- Clamp beat within the (possibly clamped) measure
-	new_pos.beat = math.max(0, math.min(bpm - 1, new_pos.beat))
+	-- Clamp measure — if it was out of bounds, pin to the boundary position
+	local clamped_measure = math.max(0, math.min(default_measures - 1, new_pos.measure))
+	if clamped_measure ~= new_pos.measure then
+		-- Would have gone past the edge — stay put
+		new_pos.measure = ctx.pos.measure
+		new_pos.beat = ctx.pos.beat
+		new_pos.sub = ctx.pos.sub
+	else
+		new_pos.measure = clamped_measure
+		new_pos.beat = math.max(0, math.min(bpm - 1, new_pos.beat))
+	end
 
 	-- Clamp string
 	local si = new_string_idx or ctx.string_idx
@@ -83,28 +89,31 @@ local function move_to(ctx, new_pos, new_string_idx)
 
 	-- Update highlights
 	local beat_start_pos = { measure = new_pos.measure, beat = new_pos.beat, sub = 0 }
-	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.position_to_col(beat_start_pos), div)
+	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.position_to_col(beat_start_pos), div * 3)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
 
---- Write a character at the cursor, then advance right.
+--- Write a character at the cursor.
+--- If the current cell already contains a digit, treat this as the second digit
+--- of a double-digit fret and write into the overflow slot.
 ---@param char string
-local function write_and_advance(char)
+local function write_fret(char)
 	local ctx = get_cursor_context()
 	if not ctx then
 		return
 	end
 
-	staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, char)
+	-- Check if the current cell already has a digit (double-digit fret case)
+	local col = staff.position_to_col(ctx.pos)
+	local line = vim.api.nvim_buf_get_lines(state.bufnr, ctx.staff_top + ctx.string_idx, ctx.staff_top + ctx.string_idx + 1, false)[1]
+	local existing = line and line:sub(col + 1, col + 1)
 
-	-- Advance right by one sub-column
-	local new_pos = vim.deepcopy(ctx.pos)
-	new_pos.sub = new_pos.sub + 1
-	if new_pos.sub >= config.options.divisions then
-		new_pos.sub = 0
-		new_pos.beat = new_pos.beat + 1
+	if existing and existing:match("%d") and char:match("%d") then
+		-- Write double-digit fret: existing is tens digit, char is ones digit
+		staff.write_double_digit(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, existing, char)
+	else
+		staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, char)
 	end
-	move_to(ctx, new_pos)
 end
 
 --- Save existing buffer-local keymap for a key (if any), then set our override.
@@ -245,7 +254,7 @@ local function install_keymaps(bufnr)
 	for _, digit in ipairs({ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" }) do
 		local d = digit -- capture for closure
 		set_tab_keymap(bufnr, d, function()
-			write_and_advance(d)
+			write_fret(d)
 		end, "Tab mode: write fret " .. d)
 	end
 end
@@ -309,7 +318,7 @@ function M.enter()
 	local pos = staff.col_to_position(col)
 	if pos then
 		local beat_start = { measure = pos.measure, beat = pos.beat, sub = 0 }
-		hl.highlight_beat_column(bufnr, top, staff.position_to_col(beat_start), config.options.divisions)
+		hl.highlight_beat_column(bufnr, top, staff.position_to_col(beat_start), config.options.divisions * 3)
 		hl.show_mode_indicator(bufnr, top, pos)
 	end
 
