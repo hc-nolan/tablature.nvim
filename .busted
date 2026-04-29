@@ -1,0 +1,6 @@
+return {
+  default = {
+    pattern = "_spec",
+    lpath = "spec/?.lua",
+  },
+}

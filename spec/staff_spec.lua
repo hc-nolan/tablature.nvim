@@ -1,23 +1,4 @@
--- Minimal vim stubs so modules load without a live Neovim instance
-_G.vim = {
-	tbl_deep_extend = function(mode, base, override)
-		local result = {}
-		for k, v in pairs(base) do
-			result[k] = v
-		end
-		for k, v in pairs(override) do
-			result[k] = v
-		end
-		return result
-	end,
-	startswith = function(s, prefix)
-		return s:sub(1, #prefix) == prefix
-	end,
-}
-
--- Point Lua at the plugin's source tree
-package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
-
+require("helpers")
 local config = require("tablature.config")
 local staff = require("tablature.staff")
 
