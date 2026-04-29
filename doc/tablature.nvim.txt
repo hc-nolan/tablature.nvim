@@ -96,30 +96,34 @@ Tab mode exits automatically if you leave the buffer or window.
 
 Tab mode keys are configured separately from `default_mappings` via the
 `tabmode_keys` option. Each entry specifies a `key`, a `func` to call, and a
-`desc`. You can remap, remove, or extend them freely:
-
->lua
-    require("tablature").setup({
-      tabmode_keys = {
-        -- Remap move-left to the arrow key only
-        {
-          key = "<Left>",
-          func = function() require("tablature.mode").move_left() end,
-          desc = "Tab mode: move left",
-        },
-        -- Add a custom action
-        {
-          key = "x",
-          func = function() require("tablature.mode").clear_cell() end,
-          desc = "Tab mode: delete",
-        },
-      },
-    })
-<
+`desc`. You can remap, remove, or extend them freely.
 
 
   **Note:** replacing `tabmode_keys` entirely removes all default bindings —
   include any defaults you want to keep.
+The full set of defaults (copy this as a starting point):
+
+>lua
+    require("tablature").setup({
+      tabmode_keys = {
+        { key = "h",       func = function() require("tablature.mode").move_left()            end, desc = "Tab mode: move left" },
+        { key = "<Left>",  func = function() require("tablature.mode").move_left()            end, desc = "Tab mode: move left" },
+        { key = "l",       func = function() require("tablature.mode").move_right()           end, desc = "Tab mode: move right" },
+        { key = "<Right>", func = function() require("tablature.mode").move_right()           end, desc = "Tab mode: move right" },
+        { key = "H",       func = function() require("tablature.mode").move_previous_beat()   end, desc = "Tab mode: move to previous beat" },
+        { key = "L",       func = function() require("tablature.mode").move_next_beat()       end, desc = "Tab mode: move to next beat" },
+        { key = "{",       func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure" },
+        { key = "}",       func = function() require("tablature.mode").move_next_measure()    end, desc = "Tab mode: move to next measure" },
+        { key = "j",       func = function() require("tablature.mode").move_next_string()     end, desc = "Tab mode: move to next string" },
+        { key = "k",       func = function() require("tablature.mode").move_previous_string() end, desc = "Tab mode: move to previous string" },
+        { key = "<Space>", func = function() require("tablature.mode").clear_cell()           end, desc = "Tab mode: clear cell" },
+        { key = "<BS>",    func = function() require("tablature.mode").clear_cell_and_move_left() end, desc = "Tab mode: clear cell and move left" },
+        { key = "<Esc>",   func = function() require("tablature.mode").exit()                 end, desc = "Tab mode: exit tab mode" },
+        { key = "q",       func = function() require("tablature.mode").exit()                 end, desc = "Tab mode: exit tab mode" },
+      },
+    })
+<
+
 
 CONFIGURATION                    *tablature.nvim-tablature.nvim-configuration*
 
