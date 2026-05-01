@@ -20,10 +20,11 @@ and edit them with a dedicated tab mode.
 FEATURES                              *tablature.nvim-tablature.nvim-features*
 
 - Insert formatted tab staff blocks inline in any buffer
-- Enter a tab editing mode with cursor-aware navigation
-- Write single or double-digit fret numbers at the cursor
-- Beat-column highlighting and position indicator while editing
-- Configurable tuning, time signature, and staff layout
+- Tab editing mode with cursor-aware navigation and beat-column highlighting
+- Write single and double-digit fret numbers
+- Multiple tunings with live staff relabeling
+- Chord mode: pick a chord shape, slide it up/down the neck, insert with `<CR>`
+- Configurable time signature, staff layout, and key bindings
 
 
 REQUIREMENTS                      *tablature.nvim-tablature.nvim-requirements*
@@ -46,7 +47,7 @@ defaults. Call `setup()` only if you want to override options.
 USAGE                                    *tablature.nvim-tablature.nvim-usage*
 
 
-KEYMAPS ~
+GLOBAL KEYMAPS ~
 
   Key          Action
   ------------ --------------------------------------------
@@ -65,112 +66,187 @@ TAB MODE ~
 While in tab mode the following keys are active:
 
   -----------------------------------------------------------------------
-  Key(s)                   Action
-  ------------------------ ----------------------------------------------
-  h / <Left>               Move left one sub-column
+  Key(s)        Action
+  ------------- ---------------------------------------------------------
+  h / <Left>    Move left one sub-column
 
-  l / <Right>              Move right one sub-column
+  l / <Right>   Move right one sub-column
 
-  H                        Move left one beat
+  H             Move left one beat
 
-  L                        Move right one beat
+  L             Move right one beat
 
-  {                        Move left one measure
+  {             Move left one measure
 
-  }                        Move right one measure
+  }             Move right one measure
 
-  j                        Move to next string (lower)
+  j             Move to next string (lower pitch)
 
-  k                        Move to previous string (higher)
+  k             Move to previous string (higher pitch)
 
-  0–9                      Write fret number (stays in place; type two
-                           digits for double-digit frets)
+  0–9           Write fret number; type a second digit immediately for
+                double-digit frets
 
-  <Space>                  Clear cell (write filler char)
+  <Space>       Clear cell
 
-  <BS>                     Clear cell and move left
+  <BS>          Clear cell and move left
 
-  <Esc> / q                Exit tab mode
+  <leader>tt    Change tuning (picker; relabels staff if cursor is on
+                one)
+
+  C             Enter chord mode (see below)
+
+  <Esc> / q     Exit tab mode
   -----------------------------------------------------------------------
-Tab mode exits automatically if you leave the buffer or window.
-
-Tab mode keys are configured separately from `default_mappings` via the
-`tabmode_keys` option. Each entry specifies a `key`, a `func` to call, and a
-`desc`. You can remap, remove, or extend them freely.
+Tab mode exits automatically when you leave the buffer or window.
 
 
-  **Note:** replacing `tabmode_keys` entirely removes all default bindings —
-  include any defaults you want to keep.
-The full set of defaults (copy this as a starting point):
+CHORD MODE ~
 
->lua
-    require("tablature").setup({
-      tabmode_keys = {
-        { key = "h",       func = function() require("tablature.mode").move_left()            end, desc = "Tab mode: move left" },
-        { key = "<Left>",  func = function() require("tablature.mode").move_left()            end, desc = "Tab mode: move left" },
-        { key = "l",       func = function() require("tablature.mode").move_right()           end, desc = "Tab mode: move right" },
-        { key = "<Right>", func = function() require("tablature.mode").move_right()           end, desc = "Tab mode: move right" },
-        { key = "H",       func = function() require("tablature.mode").move_previous_beat()   end, desc = "Tab mode: move to previous beat" },
-        { key = "L",       func = function() require("tablature.mode").move_next_beat()       end, desc = "Tab mode: move to next beat" },
-        { key = "{",       func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure" },
-        { key = "}",       func = function() require("tablature.mode").move_next_measure()    end, desc = "Tab mode: move to next measure" },
-        { key = "j",       func = function() require("tablature.mode").move_next_string()     end, desc = "Tab mode: move to next string" },
-        { key = "k",       func = function() require("tablature.mode").move_previous_string() end, desc = "Tab mode: move to previous string" },
-        { key = "<Space>", func = function() require("tablature.mode").clear_cell()           end, desc = "Tab mode: clear cell" },
-        { key = "<BS>",    func = function() require("tablature.mode").clear_cell_and_move_left() end, desc = "Tab mode: clear cell and move left" },
-        { key = "<Esc>",   func = function() require("tablature.mode").exit()                 end, desc = "Tab mode: exit tab mode" },
-        { key = "q",       func = function() require("tablature.mode").exit()                 end, desc = "Tab mode: exit tab mode" },
-      },
-    })
-<
+Press `C` in tab mode to open a shape picker. After selecting a shape, chord
+mode becomes active:
+
+  Key           Action
+  ------------- ----------------------------------------------
+  + / =         Slide shape up one fret
+  -             Slide shape down one fret
+  <Tab>         Cycle to next shape
+  <S-Tab>       Cycle to previous shape
+  <CR>          Insert chord at cursor (stays in chord mode)
+  C             Re-open the shape picker
+  <Esc> / q     Exit chord mode (returns to tab mode)
+  h/l/H/L/{/}   Move cursor (preview updates)
+A preview overlay and indicator line are shown while chord mode is active. The
+indicator displays the shape name, current root fret, and available keys.
+
+
+TUNING PICKER ~
+
+`<leader>tt` in tab mode opens a tuning picker. If the cursor is on a staff
+block with a matching string count, the labels are rewritten in place.
 
 
 CONFIGURATION                    *tablature.nvim-tablature.nvim-configuration*
 
 >lua
     require("tablature").setup({
-      -- Whether or not to register the default keymaps (<leader>ti and <leader>te)
+      -- Register <leader>ti and <leader>te
       default_mappings = true,
     
-      -- Tab mode key bindings (see "Tab mode" section above for details)
-      -- tabmode_keys = { ... },
-    
-      -- How many sub-columns per beat (4 = sixteenth notes, 2 = eighth notes, etc.)
+      -- How many sub-columns per beat (4 = sixteenth notes, 2 = eighth notes)
       divisions = 4,
     
       -- Beats per measure
       beats_per_measure = 4,
     
-      -- Number of measures inserted with <leader>ti
+      -- Number of measures inserted by <leader>ti
       default_measures = 2,
-    
-      -- String names, top to bottom (high to low pitch)
-      strings = { "e", "B", "G", "D", "A", "E" },
     
       -- Character used to fill empty cells
       filler = "-",
     
       -- Measure separator character
       measure_sep = "|",
+    
+      -- Tunings available in the picker (strings listed low → high pitch)
+      tunings = {
+        { name = "Standard", strings = { "E", "A", "D", "G", "B", "e" } },
+        { name = "Drop D",   strings = { "D", "A", "D", "G", "B", "e" } },
+      },
+    
+      -- Chord shape library. Shapes under "default" appear for all tunings;
+      -- shapes under a tuning name appear only when that tuning is active
+      -- (tuning-specific shapes take precedence on name collisions).
+      --
+      -- Each shape is a low→high list of fret offsets from a root fret.
+      -- "x" = muted string. Numeric values shift together when the root fret changes.
+      chords = {
+        default = {
+          ["Power 5th (E root)"] = { "0", "2", "2", "x", "x", "x" },
+        },
+        Standard = {
+          ["Major (E shape)"] = { "0", "2", "2", "1", "0", "0" },
+          ["Minor (E shape)"] = { "0", "2", "2", "0", "0", "0" },
+          -- ...
+        },
+        ["Drop D"] = {
+          ["Power (Drop D)"] = { "0", "0", "0", "x", "x", "x" },
+          -- ...
+        },
+      },
+    
+      -- Tab mode key bindings (see below for the full default list)
+      -- tabmode_keys = { ... },
     })
 <
 
 
-EXAMPLE: DROP D TUNING ~
+TUNING EXAMPLES ~
+
+Drop D:
 
 >lua
     require("tablature").setup({
-      strings = { "e", "B", "G", "D", "A", "D" },
+      tunings = {
+        { name = "Standard", strings = { "E", "A", "D", "G", "B", "e" } },
+        { name = "Drop D",   strings = { "D", "A", "D", "G", "B", "e" } },
+      },
+    })
+<
+
+Open G:
+
+>lua
+    require("tablature").setup({
+      tunings = {
+        { name = "Standard", strings = { "E", "A", "D", "G", "B", "e" } },
+        { name = "Open G",   strings = { "D", "G", "D", "G", "B", "D" } },
+      },
     })
 <
 
 
-EXAMPLE: 3/4 TIME WITH EIGHTH-NOTE RESOLUTION ~
+TIME SIGNATURE EXAMPLE: 3/4 WITH EIGHTH-NOTE RESOLUTION ~
 
 >lua
     require("tablature").setup({
       beats_per_measure = 3,
       divisions = 2,
+    })
+<
+
+
+TAB MODE KEY BINDINGS ~
+
+Tab mode keys are configured via the `tabmode_keys` option. Each entry
+specifies a `key`, a `func`, and a `desc`. You can remap, remove, or extend
+them freely.
+
+
+  **Note:** replacing `tabmode_keys` entirely removes all default bindings —
+  include any defaults you want to keep.
+Full default list:
+
+>lua
+    require("tablature").setup({
+      tabmode_keys = {
+        { key = "h",           func = function() require("tablature.mode").move_left()             end, desc = "Tab mode: move left" },
+        { key = "<Left>",      func = function() require("tablature.mode").move_left()             end, desc = "Tab mode: move left" },
+        { key = "l",           func = function() require("tablature.mode").move_right()            end, desc = "Tab mode: move right" },
+        { key = "<Right>",     func = function() require("tablature.mode").move_right()            end, desc = "Tab mode: move right" },
+        { key = "H",           func = function() require("tablature.mode").move_previous_beat()    end, desc = "Tab mode: move to previous beat" },
+        { key = "L",           func = function() require("tablature.mode").move_next_beat()        end, desc = "Tab mode: move to next beat" },
+        { key = "{",           func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure" },
+        { key = "}",           func = function() require("tablature.mode").move_next_measure()     end, desc = "Tab mode: move to next measure" },
+        { key = "j",           func = function() require("tablature.mode").move_next_string()      end, desc = "Tab mode: move to next string" },
+        { key = "k",           func = function() require("tablature.mode").move_previous_string()  end, desc = "Tab mode: move to previous string" },
+        { key = "<Space>",     func = function() require("tablature.mode").clear_cell()            end, desc = "Tab mode: clear cell" },
+        { key = "<BS>",        func = function() require("tablature.mode").clear_cell_and_move_left() end, desc = "Tab mode: clear cell and move left" },
+        { key = "<Esc>",       func = function() require("tablature.mode").exit()                  end, desc = "Tab mode: exit tab mode" },
+        { key = "q",           func = function() require("tablature.mode").exit()                  end, desc = "Tab mode: exit tab mode" },
+        { key = "<leader>tt",  func = function() require("tablature.mode").pick_tuning()           end, desc = "Tab mode: change tuning" },
+        { key = "C",           func = function() require("tablature.mode").insert_chord()          end, desc = "Tab mode: enter chord mode" },
+      },
     })
 <
 
