@@ -1,10 +1,12 @@
 require("helpers")
 local config = require("tablature.config")
+local state = require("tablature.state")
 local staff = require("tablature.staff")
 
--- Initialise config with defaults before each test
+-- Initialise config and default tuning before each test
 before_each(function()
 	config.set()
+	state.set_tuning(config.options.tunings[1])
 end)
 
 -- Default config: label_width=1, measure_sep="|" (1 char), divisions=4, beats_per_measure=4

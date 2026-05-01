@@ -6,25 +6,36 @@ local M = {}
 ---@field func function  Function for the keymap to call
 ---@field desc string  Keymap description
 
+--- Describes a tuning
+---@class tablature.Tuning
+---@field name string  The name of the tuning, e.g. "Drop D"
+---@field strings string[]  String names from high to low (displayed top to bottom)
+
 ---@class tablature.UserConfig
 ---@field default_mappings boolean  Whether or not to register the default keymaps
 ---@field tabmode_keys table<tablature.KeyMap>
 ---@field divisions integer  How many columns per beat (4 = quarter notes, 8 = eighths, etc.)
 ---@field beats_per_measure integer  Number of beats per measure
 ---@field default_measures integer  Number of measures to insert when creating a new staff block
----@field strings string[]  String names from high to low (displayed top to bottom)
+---@field tunings tablature.Tuning[]  Any number of tunings to use when generating staves
 ---@field filler string  Character used to fill empty columns
 ---@field measure_sep string  Character used as the measure separator
-
----@class tablature.Config : tablature.UserConfig
----@field label_width integer  Derived: max length of any string label.
 
 M.defaults = {
 	default_mappings = true,
 	divisions = 4,
 	beats_per_measure = 4,
 	default_measures = 2,
-	strings = { "e", "B", "G", "D", "A", "E" },
+	tunings = {
+		{
+			name = "Standard",
+			strings = { "e", "B", "G", "D", "A", "E" },
+		},
+		{
+			name = "Drop D",
+			strings = { "e", "B", "G", "D", "A", "D" },
+		},
+	},
 	filler = "-",
 	measure_sep = "|",
 	tabmode_keys = {
@@ -126,6 +137,14 @@ M.defaults = {
 			end,
 			desc = "Tab mode: exit tab mode",
 		},
+		{
+			key = "<leader>tt",
+			desc = "Tab mode: change tuning",
+			func = function()
+				require("tablature.mode").pick_tuning()
+			end,
+		},
+
 	},
 }
 
@@ -136,14 +155,6 @@ M.options = {}
 ---@param opts tablature.UserConfig|nil
 function M.set(opts)
 	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
-	-- Precompute label width
-	local longest = 0
-	for _, v in ipairs(M.options.strings) do
-		if #v > longest then
-			longest = #v
-		end
-	end
-	M.options.label_width = longest
 end
 
 return M

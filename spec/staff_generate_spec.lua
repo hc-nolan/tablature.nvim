@@ -1,10 +1,12 @@
 require("helpers")
 
 local config = require("tablature.config")
-local staff   = require("tablature.staff")
+local state = require("tablature.state")
+local staff = require("tablature.staff")
 
 before_each(function()
 	config.set()
+	state.set_tuning(config.options.tunings[1])
 end)
 
 -- Default config:
@@ -25,7 +27,7 @@ describe("staff.generate", function()
 
 	it("each line starts with the string label followed by the measure separator", function()
 		local lines = staff.generate()
-		local strings = config.options.strings
+		local strings = state.tuning.strings
 		for i, line in ipairs(lines) do
 			assert.are.equal(strings[i] .. config.options.measure_sep, line:sub(1, 2))
 		end
@@ -34,7 +36,8 @@ describe("staff.generate", function()
 	it("each line has the correct total length", function()
 		local cfg = config.options
 		-- label(1) + sep(1) + measures * bpm * (div*3 + sep_width)
-		local expected_len = cfg.label_width + #cfg.measure_sep
+		local expected_len = state.label_width
+			+ #cfg.measure_sep
 			+ cfg.default_measures * cfg.beats_per_measure * (cfg.divisions * 3 + #cfg.measure_sep)
 		local lines = staff.generate()
 		for _, line in ipairs(lines) do
@@ -47,7 +50,7 @@ describe("staff.generate", function()
 		local cfg = config.options
 		-- Strip label+sep prefix and check that remaining chars are only filler or measure_sep
 		for _, line in ipairs(lines) do
-			local content = line:sub(cfg.label_width + #cfg.measure_sep + 1)
+			local content = line:sub(state.label_width + #cfg.measure_sep + 1)
 			assert.truthy(content:match("^[" .. cfg.filler .. "%" .. cfg.measure_sep .. "]+$"))
 		end
 	end)
@@ -55,7 +58,8 @@ describe("staff.generate", function()
 	it("respects custom measures opt", function()
 		local lines = staff.generate({ measures = 4 })
 		local cfg = config.options
-		local expected_len = cfg.label_width + #cfg.measure_sep
+		local expected_len = state.label_width
+			+ #cfg.measure_sep
 			+ 4 * cfg.beats_per_measure * (cfg.divisions * 3 + #cfg.measure_sep)
 		for _, line in ipairs(lines) do
 			assert.are.equal(expected_len, #line)
@@ -65,8 +69,7 @@ describe("staff.generate", function()
 	it("respects custom beats_per_measure opt", function()
 		local lines = staff.generate({ measures = 1, beats_per_measure = 3 })
 		local cfg = config.options
-		local expected_len = cfg.label_width + #cfg.measure_sep
-			+ 1 * 3 * (cfg.divisions * 3 + #cfg.measure_sep)
+		local expected_len = state.label_width + #cfg.measure_sep + 1 * 3 * (cfg.divisions * 3 + #cfg.measure_sep)
 		for _, line in ipairs(lines) do
 			assert.are.equal(expected_len, #line)
 		end
@@ -75,7 +78,8 @@ describe("staff.generate", function()
 	it("respects custom divisions opt", function()
 		local lines = staff.generate({ measures = 1, divisions = 2 })
 		local cfg = config.options
-		local expected_len = cfg.label_width + #cfg.measure_sep
+		local expected_len = state.label_width
+			+ #cfg.measure_sep
 			+ 1 * cfg.beats_per_measure * (2 * 3 + #cfg.measure_sep)
 		for _, line in ipairs(lines) do
 			assert.are.equal(expected_len, #line)

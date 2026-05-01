@@ -51,7 +51,7 @@ local function move_to(ctx, new_pos, new_string_idx)
 	local div = cfg.divisions
 	local bpm = cfg.beats_per_measure
 	local default_measures = cfg.default_measures
-	local num_strings = #cfg.strings
+	local num_strings = #state.tuning.strings
 
 	-- Clamp sub
 	new_pos.sub = math.max(0, math.min(div - 1, new_pos.sub))
@@ -105,7 +105,12 @@ local function write_fret(char)
 
 	-- Check if the current cell already has a digit (double-digit fret case)
 	local col = staff.position_to_col(ctx.pos)
-	local line = vim.api.nvim_buf_get_lines(state.bufnr, ctx.staff_top + ctx.string_idx, ctx.staff_top + ctx.string_idx + 1, false)[1]
+	local line = vim.api.nvim_buf_get_lines(
+		state.bufnr,
+		ctx.staff_top + ctx.string_idx,
+		ctx.staff_top + ctx.string_idx + 1,
+		false
+	)[1]
 	local existing = line and line:sub(col + 1, col + 1)
 
 	if existing and existing:match("%d") and char:match("%d") then
@@ -346,8 +351,6 @@ function M.enter()
 			end
 		end,
 	})
-
-	vim.notify("tablature: entered tab mode  (<Esc> or q to exit)", vim.log.levels.INFO)
 end
 
 --- Exit tab editing mode.
@@ -365,7 +368,57 @@ function M.exit()
 	pcall(vim.api.nvim_del_augroup_by_name, "TablatureModeExit_" .. bufnr)
 
 	state.reset()
-	vim.notify("tablature: exited tab mode", vim.log.levels.INFO)
+end
+
+--- Open a tuning picker. Safe to call from both normal mode and tab mode.
+--- When called from tab mode, restores cursor and re-enters after selection.
+function M.pick_tuning()
+	local was_active = state.active
+	local win = vim.api.nvim_get_current_win()
+	local cursor = vim.api.nvim_win_get_cursor(win)
+	local bufnr = vim.api.nvim_get_current_buf()
+	local row = cursor[1] - 1 -- 0-indexed
+	local staff_top = state.tuning and staff.find_staff_top(bufnr, row)
+	local old_label_width = state.label_width
+
+	vim.ui.select(config.options.tunings, {
+		prompt = "Select tuning",
+		format_item = function(t)
+			if state.tuning and state.tuning.name == t.name then
+				return t.name .. " (active)"
+			end
+			return t.name
+		end,
+	}, function(choice)
+		if not choice then
+			if was_active then
+				vim.schedule(function()
+					vim.api.nvim_win_set_cursor(win, cursor)
+					M.enter()
+				end)
+			end
+			return
+		end
+		if staff_top then
+			if #choice.strings == #state.tuning.strings then
+				staff.relabel_staff(bufnr, staff_top, old_label_width, choice)
+			else
+				vim.notify("tablature: cannot relabel staff — string count mismatch", vim.log.levels.WARN)
+			end
+		end
+		state.set_tuning(choice)
+		if staff_top then
+			vim.notify("tablature: tuning changed to " .. choice.name .. " (staff relabeled)", vim.log.levels.INFO)
+		else
+			vim.notify("tablature: tuning changed to " .. choice.name, vim.log.levels.INFO)
+		end
+		if was_active then
+			vim.schedule(function()
+				vim.api.nvim_win_set_cursor(win, cursor)
+				M.enter()
+			end)
+		end
+	end)
 end
 
 return M

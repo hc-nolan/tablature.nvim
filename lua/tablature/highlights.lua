@@ -30,8 +30,8 @@ end
 ---@param col integer         0-indexed byte column of beat start
 ---@param divisions integer   width of the beat cell
 function M.highlight_beat_column(bufnr, staff_top, col, divisions)
-	local cfg = require("tablature.config").options
-	local num_strings = #cfg.strings
+	local state = require("tablature.state")
+	local num_strings = #state.tuning.strings
 
 	M.clear(bufnr)
 

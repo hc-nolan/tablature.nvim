@@ -8,7 +8,11 @@ function M.setup(opts)
 	if config.options.default_mappings then
 		vim.keymap.set("n", "<leader>ti", "<Plug>(tablature-insert)")
 		vim.keymap.set("n", "<leader>te", "<Plug>(tablature-edit)")
+		vim.keymap.set("n", "<leader>tt", "<Plug>(tablature-change-tuning)")
 	end
+
+	local tuning = config.options.tunings[1]
+	require("tablature.state").set_tuning(tuning)
 end
 
 M.enter = function()

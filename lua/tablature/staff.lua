@@ -18,6 +18,7 @@
 -- Final char  :  beat_sep (closing bar)
 
 local config = require("tablature.config")
+local state = require("tablature.state")
 
 ---@class tablature.staff.position
 ---@field measure integer
@@ -58,10 +59,10 @@ function M.generate(opts)
 	local div = (opts and opts.divisions) or cfg.divisions
 	local filler = cfg.filler
 	local beat_sep = cfg.measure_sep
-	local label_length = cfg.label_width
+	local label_length = state.label_width
 
 	local lines = {}
-	for _, s in ipairs(cfg.strings) do
+	for _, s in ipairs(state.tuning.strings) do
 		lines[#lines + 1] = build_line(s, measures, bpm, div, filler, beat_sep, label_length)
 	end
 	return lines
@@ -72,14 +73,14 @@ end
 function M.insert_below_cursor(bufnr)
 	local row = vim.api.nvim_win_get_cursor(0)[1] -- 1-indexed
 	local cfg = config.options
-	local label_width = cfg.label_width
+	local label_width = state.label_width
 	local first_col = label_width + cfg.measure_sep:len()
 	local lines = M.generate()
 	local staff_top = M.find_staff_top(bufnr, row - 1)
 	local cursor_position = row + 1
 	if staff_top then
 		-- Already inside a staff, insert below
-		row = staff_top + #cfg.strings
+		row = staff_top + #state.tuning.strings
 
 		-- Insert 2 blank lines in between staves
 		for _ = 1, 2 do
@@ -97,6 +98,31 @@ function M.insert_below_cursor(bufnr)
 	vim.api.nvim_win_set_cursor(0, { cursor_position, first_col })
 end
 
+--- Rewrite the string labels of an existing staff block to match a new tuning.
+--- The number of strings in new_tuning must match the existing block.
+---@param bufnr integer
+---@param staff_top integer  0-indexed line of top string
+---@param old_label_width integer  label width the staff was generated with
+---@param new_tuning tablature.Tuning
+function M.relabel_staff(bufnr, staff_top, old_label_width, new_tuning)
+	local new_label_width = 0
+	for _, s in ipairs(new_tuning.strings) do
+		if #s > new_label_width then
+			new_label_width = #s
+		end
+	end
+
+	for i, string_name in ipairs(new_tuning.strings) do
+		local row = staff_top + i - 1
+		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+		if line then
+			local content_after_label = line:sub(old_label_width + 1)
+			local new_label = string_name .. string.rep(" ", new_label_width - #string_name)
+			vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_label .. content_after_label })
+		end
+	end
+end
+
 --- Detect if the given line number (0-indexed) is part of a staff block.
 --- Returns the 0-indexed line of the staff top, or nil.
 ---@param bufnr integer
@@ -104,55 +130,36 @@ end
 ---@return integer|nil
 function M.find_staff_top(bufnr, row)
 	local cfg = config.options
-	local num_strings = #cfg.strings
+	local num_strings = #state.tuning.strings
 	local total_lines = vim.api.nvim_buf_line_count(bufnr)
-	local label_width = cfg.label_width
-
-	-- Search upward from row to find the first line of the staff block
-	-- A staff line starts with one of the string labels followed by the beat_sep
+	local label_width = state.label_width
 	local function is_staff_line(r)
 		if r < 0 or r >= total_lines then
-			return false, nil
+			return false
 		end
 		local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
-		if not line then
-			return false, nil
+		if not line or #line < label_width + 1 then
+			return false
 		end
-		for i, s in ipairs(cfg.strings) do
-			local padded = s .. string.rep(" ", label_width - #s)
-			if vim.startswith(line, padded .. cfg.measure_sep) then
-				return true, i -- 1-indexed string position
-			end
-		end
-		return false, nil
+		return line:sub(label_width + 1, label_width + 1) == cfg.measure_sep
 	end
-
-	-- Walk upward to find top of block
+	-- Walk upward to find the top of the block
 	local check = row
-	while check >= 0 do
-		local ok, str_idx = is_staff_line(check)
-		if not ok then
-			break
-		end
-		-- If this is string 1 (top string), we found the top
-		if str_idx == 1 then
-			-- Verify all num_strings lines form a contiguous block
-			local valid = true
-			for offset = 0, num_strings - 1 do
-				local ok2, idx2 = is_staff_line(check + offset)
-				if not ok2 or idx2 ~= offset + 1 then
-					valid = false
-					break
-				end
-			end
-			if valid then
-				return check
-			end
-			break
-		end
+	while check >= 0 and is_staff_line(check) do
 		check = check - 1
 	end
-	return nil
+	local top = check + 1
+	-- Verify exactly num_strings contiguous staff lines from top
+	for offset = 0, num_strings - 1 do
+		if not is_staff_line(top + offset) then
+			return nil
+		end
+	end
+	-- Verify the line below the block is NOT a staff line (avoids matching mid-block)
+	if is_staff_line(top + num_strings) then
+		return nil
+	end
+	return top
 end
 
 --- Given a cursor column, compute which beat and sub-column the cursor is in.
@@ -165,7 +172,7 @@ function M.col_to_position(col)
 	local bpm = cfg.beats_per_measure
 	local sep_width = cfg.measure_sep:len()
 
-	local label_width = cfg.label_width
+	local label_width = state.label_width
 
 	local content_start = label_width + sep_width
 
@@ -202,7 +209,7 @@ function M.position_to_col(pos)
 	local cfg = config.options
 	local div = cfg.divisions
 	local bpm = cfg.beats_per_measure
-	local label_width = cfg.label_width
+	local label_width = state.label_width
 	local sep_width = cfg.measure_sep:len()
 	local cell_width = div * 3 + sep_width
 
@@ -247,7 +254,7 @@ end
 ---@param ones string   second digit character
 function M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
 	local cfg = config.options
-	local num_strings = #cfg.strings
+	local num_strings = #state.tuning.strings
 	local col = M.position_to_col(pos)
 
 	for i = 0, num_strings - 1 do
