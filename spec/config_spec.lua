@@ -12,7 +12,7 @@ describe("config.set", function()
 		assert.are.equal(2, config.options.default_measures)
 		assert.are.equal("-", config.options.filler)
 		assert.are.equal("|", config.options.measure_sep)
-		assert.are.same({ "e", "B", "G", "D", "A", "E" }, config.options.tunings[1].strings)
+		assert.are.same({ "E", "A", "D", "G", "B", "e" }, config.options.tunings[1].strings)
 	end)
 
 	it("user values override defaults", function()
@@ -39,5 +39,49 @@ describe("config.set", function()
 		config.set({ divisions = 8 })
 		config.set({ divisions = 2 })
 		assert.are.equal(2, config.options.divisions)
+	end)
+
+	it("chords is nested: default key plus per-tuning keys", function()
+		config.set()
+		local chords = config.options.chords
+		assert.is_table(chords)
+		assert.is_table(chords.default, "chords.default should exist")
+		assert.is_table(chords.Standard, "chords.Standard should exist")
+		assert.is_table(chords["Drop D"], "chords['Drop D'] should exist")
+	end)
+
+	it("default chords include tuning-agnostic power chord shapes", function()
+		config.set()
+		assert.is_table(config.options.chords.default["Power 5th (E root)"])
+		assert.is_table(config.options.chords.default["Power 5th (A root)"])
+	end)
+
+	it("Standard chords include E-shape and A-shape movable barre shapes", function()
+		config.set()
+		local std = config.options.chords.Standard
+		assert.is_table(std["Major (E shape)"])
+		assert.is_table(std["Minor (E shape)"])
+		assert.is_table(std["Major (A shape)"])
+		assert.is_table(std["Minor (A shape)"])
+	end)
+
+	it("all shape values are 'x' or numeric strings", function()
+		config.set()
+		local chords = config.options.chords
+		for _, group in pairs(chords) do
+			for shape_name, shape in pairs(group) do
+				for _, fret in ipairs(shape) do
+					assert.is_true(fret == "x" or tonumber(fret) ~= nil,
+						("shape %q has non-numeric, non-x value %q"):format(shape_name, fret))
+				end
+			end
+		end
+	end)
+
+	it("user can add shapes to a tuning without losing defaults", function()
+		config.set({ chords = { Standard = { ["My shape"] = { "0", "2", "2", "1", "0", "0" } } } })
+		assert.is_table(config.options.chords.Standard["My shape"])
+		assert.is_table(config.options.chords.Standard["Major (E shape)"])
+		assert.is_table(config.options.chords.default["Power 5th (E root)"])
 	end)
 end)

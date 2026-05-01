@@ -6,13 +6,19 @@ if not _G.vim then
 	local next_bufnr = 1
 
 	_G.vim = {
-		tbl_deep_extend = function(_, base, override)
+		tbl_deep_extend = function(mode, base, ...)
 			local result = {}
 			for k, v in pairs(base) do
-				result[k] = v
+				result[k] = type(v) == "table" and vim.tbl_deep_extend(mode, v) or v
 			end
-			for k, v in pairs(override or {}) do
-				result[k] = v
+			for _, override in ipairs({ ... }) do
+				for k, v in pairs(override or {}) do
+					if type(v) == "table" and type(result[k]) == "table" then
+						result[k] = vim.tbl_deep_extend(mode, result[k], v)
+					else
+						result[k] = v
+					end
+				end
 			end
 			return result
 		end,

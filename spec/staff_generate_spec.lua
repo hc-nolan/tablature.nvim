@@ -28,8 +28,10 @@ describe("staff.generate", function()
 	it("each line starts with the string label followed by the measure separator", function()
 		local lines = staff.generate()
 		local strings = state.tuning.strings
+		-- generate() outputs strings high→low (reversed from low→high config order)
 		for i, line in ipairs(lines) do
-			assert.are.equal(strings[i] .. config.options.measure_sep, line:sub(1, 2))
+			local s = strings[#strings - i + 1]
+			assert.are.equal(s .. config.options.measure_sep, line:sub(1, #s + 1))
 		end
 	end)
 

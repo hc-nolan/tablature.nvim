@@ -16,6 +16,8 @@ function M.init_highlights()
 	vim.api.nvim_set_hl(0, "TablatureMode", { link = "ModeMsg", default = true })
 	-- Measure number virtual text
 	vim.api.nvim_set_hl(0, "TablatureMeasure", { link = "LineNr", default = true })
+	-- Chord voicing preview overlay
+	vim.api.nvim_set_hl(0, "TabChordPreview", { link = "Search", default = true })
 end
 
 --- Clear all tablature extmarks from a buffer.

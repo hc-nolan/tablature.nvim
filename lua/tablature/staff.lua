@@ -61,9 +61,10 @@ function M.generate(opts)
 	local beat_sep = cfg.measure_sep
 	local label_length = state.label_width
 
+	local strings = state.tuning.strings
 	local lines = {}
-	for _, s in ipairs(state.tuning.strings) do
-		lines[#lines + 1] = build_line(s, measures, bpm, div, filler, beat_sep, label_length)
+	for i = #strings, 1, -1 do
+		lines[#lines + 1] = build_line(strings[i], measures, bpm, div, filler, beat_sep, label_length)
 	end
 	return lines
 end
@@ -270,6 +271,35 @@ function M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
 				new_line = line:sub(1, col) .. cfg.filler .. cfg.filler .. line:sub(col + 3)
 			end
 			vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
+		end
+	end
+end
+
+--- Write a chord voicing at the given position across all strings.
+--- voicing is a list of fret values (low→high string order), one per string.
+--- Each value is a string: "x" for muted, "0" for open, or a fret number e.g. "12".
+---@param bufnr integer
+---@param staff_top integer  0-indexed
+---@param pos tablature.staff.position
+---@param voicing string[]  low→high order, length must equal #state.tuning.strings
+function M.write_chord(bufnr, staff_top, pos, voicing)
+	local num_strings = #state.tuning.strings
+	for string_idx = 0, num_strings - 1 do
+		-- string_idx 0 = top of staff = highest string = last element of voicing
+		local v = voicing[num_strings - string_idx]
+		if not v then
+			-- no value for this string, leave as-is
+		elseif v == "x" then
+			M.write_char(bufnr, staff_top, string_idx, pos, "x")
+		else
+			local n = tonumber(v)
+			if n and n >= 10 then
+				local tens = tostring(math.floor(n / 10))
+				local ones = tostring(n % 10)
+				M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
+			elseif n then
+				M.write_char(bufnr, staff_top, string_idx, pos, tostring(n))
+			end
 		end
 	end
 end

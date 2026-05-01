@@ -294,6 +294,9 @@ local function uninstall_keymaps(bufnr)
 	saved_keymaps = {}
 end
 
+-- Forward declaration — defined in the chord mode section below.
+local exit_chord_mode
+
 --- Enter tab editing mode on the current buffer.
 --- The cursor must already be on a staff line.
 function M.enter()
@@ -361,6 +364,7 @@ function M.exit()
 
 	local bufnr = state.bufnr
 
+	exit_chord_mode() -- no-op if not in chord mode
 	uninstall_keymaps(bufnr)
 	hl.clear(bufnr)
 
@@ -368,6 +372,263 @@ function M.exit()
 	pcall(vim.api.nvim_del_augroup_by_name, "TablatureModeExit_" .. bufnr)
 
 	state.reset()
+end
+
+-- ── Chord mode ───────────────────────────────────────────────────────────────
+-- A persistent sub-mode layered on top of tab mode. Stays active until the
+-- user presses <Esc> or q (which returns to plain tab mode, NOT a full exit).
+
+local CHORD_PREVIEW_NS = vim.api.nvim_create_namespace("tablature_chord_preview")
+
+local chord_mode_active = false
+local CHORD_MODE_KEYS = {}
+local saved_chord_keymaps = {}
+local chord_mode_shapes = {}     -- merged {[name]=shape} for current session
+local chord_mode_shape_names = {} -- sorted keys of chord_mode_shapes
+local chord_mode_shape_idx = 1   -- index into chord_mode_shape_names
+local chord_mode_offset = 0      -- root fret offset applied to all numeric values
+
+--- Apply the current root offset to a shape, producing an absolute voicing.
+--- "x" entries are passed through unchanged.
+---@param shape string[]
+---@param offset integer
+---@return string[]
+local function apply_offset(shape, offset)
+	local voicing = {}
+	for i, v in ipairs(shape) do
+		if v == "x" then
+			voicing[i] = "x"
+		else
+			local n = tonumber(v)
+			voicing[i] = n and tostring(n + offset) or v
+		end
+	end
+	return voicing
+end
+
+--- Redraw the chord preview overlay at the current cursor position.
+local function draw_chord_preview(bufnr)
+	vim.api.nvim_buf_clear_namespace(bufnr, CHORD_PREVIEW_NS, 0, -1)
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local shape_name = chord_mode_shape_names[chord_mode_shape_idx]
+	local shape = chord_mode_shapes[shape_name]
+	local voicing = apply_offset(shape, chord_mode_offset)
+	local num_strings = #state.tuning.strings
+	local col = staff.position_to_col(ctx.pos)
+	for string_idx = 0, num_strings - 1 do
+		local v = voicing[num_strings - string_idx] or "-"
+		local row = ctx.staff_top + string_idx
+		vim.api.nvim_buf_set_extmark(bufnr, CHORD_PREVIEW_NS, row, col, {
+			virt_text = { { v, "TabChordPreview" } },
+			virt_text_pos = "overlay",
+		})
+	end
+	local indicator = (" %s  fret: %d  <Tab> shape  +/- fret  <CR> insert  C pick  <Esc>/<q> exit"):format(
+		shape_name, chord_mode_offset
+	)
+	local bottom_row = ctx.staff_top + num_strings - 1
+	vim.api.nvim_buf_set_extmark(bufnr, CHORD_PREVIEW_NS, bottom_row, 0, {
+		virt_lines = { { { indicator, "Comment" } } },
+		virt_lines_above = false,
+	})
+end
+
+--- Save an existing buffer-local keymap (if any) then install a chord-mode override.
+local function set_chord_keymap(bufnr, key, callback, desc)
+	local existing = vim.fn.maparg(key, "n", false, true)
+	if existing and existing.buffer == 1 then
+		saved_chord_keymaps[key] = existing
+	end
+	vim.keymap.set("n", key, callback, { buffer = bufnr, nowait = true, desc = desc })
+	CHORD_MODE_KEYS[#CHORD_MODE_KEYS + 1] = key
+end
+
+--- Exit chord mode, restoring the tab-mode keymaps that chord mode shadowed.
+--- Returns to plain tab mode (does NOT call M.exit()).
+exit_chord_mode = function()
+	if not chord_mode_active then
+		return
+	end
+	chord_mode_active = false
+
+	local bufnr = state.bufnr
+	if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+		vim.api.nvim_buf_clear_namespace(bufnr, CHORD_PREVIEW_NS, 0, -1)
+		for _, key in ipairs(CHORD_MODE_KEYS) do
+			pcall(vim.keymap.del, "n", key, { buffer = bufnr })
+		end
+		for key, map in pairs(saved_chord_keymaps) do
+			if map.callback then
+				vim.keymap.set("n", key, map.callback, { buffer = bufnr, desc = map.desc })
+			elseif map.rhs and map.rhs ~= "" then
+				vim.keymap.set("n", key, map.rhs, {
+					buffer = bufnr,
+					desc = map.desc,
+					noremap = map.noremap == 1,
+					silent = map.silent == 1,
+				})
+			end
+		end
+	end
+
+	CHORD_MODE_KEYS = {}
+	saved_chord_keymaps = {}
+	chord_mode_shapes = {}
+	chord_mode_shape_names = {}
+	chord_mode_shape_idx = 1
+	chord_mode_offset = 0
+end
+
+--- Enter chord mode. Tab mode must already be active.
+--- Installs chord-mode keymaps on top of the existing tab-mode keymaps.
+---@param bufnr integer
+---@param initial_shape_name string  name of the shape to start with
+---@param shapes table<string, string[]>  merged {[name]=shape} table for this session
+local function enter_chord_mode(bufnr, initial_shape_name, shapes)
+	if chord_mode_active then
+		exit_chord_mode()
+	end
+
+	local names = vim.tbl_keys(shapes)
+	table.sort(names)
+
+	chord_mode_active = true
+	CHORD_MODE_KEYS = {}
+	saved_chord_keymaps = {}
+	chord_mode_shapes = shapes
+	chord_mode_shape_names = names
+	chord_mode_offset = 0
+
+	-- Find the index of the initially selected shape
+	chord_mode_shape_idx = 1
+	for i, name in ipairs(names) do
+		if name == initial_shape_name then
+			chord_mode_shape_idx = i
+			break
+		end
+	end
+
+	-- Tab / S-Tab: cycle through shapes
+	set_chord_keymap(bufnr, "<Tab>", function()
+		chord_mode_shape_idx = (chord_mode_shape_idx % #chord_mode_shape_names) + 1
+		draw_chord_preview(bufnr)
+	end, "Chord mode: next shape")
+
+	set_chord_keymap(bufnr, "<S-Tab>", function()
+		chord_mode_shape_idx = ((chord_mode_shape_idx - 2) % #chord_mode_shape_names) + 1
+		draw_chord_preview(bufnr)
+	end, "Chord mode: previous shape")
+
+	-- + / = / - : adjust root fret offset
+	local function offset_up()
+		chord_mode_offset = chord_mode_offset + 1
+		draw_chord_preview(bufnr)
+	end
+	local function offset_down()
+		chord_mode_offset = math.max(0, chord_mode_offset - 1)
+		draw_chord_preview(bufnr)
+	end
+	set_chord_keymap(bufnr, "+", offset_up, "Chord mode: root fret up")
+	set_chord_keymap(bufnr, "=", offset_up, "Chord mode: root fret up")
+	set_chord_keymap(bufnr, "-", offset_down, "Chord mode: root fret down")
+
+	-- CR: write the current voicing and stay in chord mode
+	set_chord_keymap(bufnr, "<CR>", function()
+		local ctx = get_cursor_context()
+		if ctx then
+			local shape_name = chord_mode_shape_names[chord_mode_shape_idx]
+			local shape = chord_mode_shapes[shape_name]
+			local voicing = apply_offset(shape, chord_mode_offset)
+			staff.write_chord(bufnr, ctx.staff_top, ctx.pos, voicing)
+		end
+		draw_chord_preview(bufnr)
+	end, "Chord mode: insert chord and stay")
+
+	set_chord_keymap(bufnr, "<Esc>", function()
+		exit_chord_mode()
+	end, "Chord mode: exit to tab mode")
+
+	set_chord_keymap(bufnr, "q", function()
+		exit_chord_mode()
+	end, "Chord mode: exit to tab mode")
+
+	set_chord_keymap(bufnr, "C", function()
+		exit_chord_mode()
+		M.insert_chord()
+	end, "Chord mode: re-pick shape")
+
+	local move_map = {
+		{ "h",       M.move_left },
+		{ "<Left>",  M.move_left },
+		{ "l",       M.move_right },
+		{ "<Right>", M.move_right },
+		{ "H",       M.move_previous_beat },
+		{ "L",       M.move_next_beat },
+		{ "{",       M.move_previous_measure },
+		{ "}",       M.move_next_measure },
+	}
+	for _, m in ipairs(move_map) do
+		local key, fn = m[1], m[2]
+		set_chord_keymap(bufnr, key, function()
+			fn()
+			draw_chord_preview(bufnr)
+		end, "Chord mode: move")
+	end
+
+	draw_chord_preview(bufnr)
+end
+
+--- Open a shape picker and enter chord mode with the selection.
+--- Safe to call from tab mode; also re-entered by C in chord mode.
+function M.insert_chord()
+	local win = vim.api.nvim_get_current_win()
+	local cursor = vim.api.nvim_win_get_cursor(win)
+	local bufnr = state.bufnr
+
+	if not get_cursor_context() then
+		vim.notify("tablature: cursor is not on a valid staff cell", vim.log.levels.WARN)
+		return
+	end
+
+	-- Merge default shapes with active tuning's shapes (tuning takes precedence).
+	local chords = config.options.chords
+	local merged = {}
+	for k, v in pairs(chords.default or {}) do
+		merged[k] = v
+	end
+	for k, v in pairs(chords[state.tuning.name] or {}) do
+		merged[k] = v
+	end
+
+	local shape_names = vim.tbl_keys(merged)
+	table.sort(shape_names)
+
+	if #shape_names == 0 then
+		vim.notify("tablature: no chord shapes defined for tuning " .. state.tuning.name, vim.log.levels.WARN)
+		vim.schedule(function()
+			vim.api.nvim_win_set_cursor(win, cursor)
+			M.enter()
+		end)
+		return
+	end
+
+	vim.ui.select(shape_names, { prompt = "Select chord shape" }, function(shape_name)
+		if not shape_name then
+			vim.schedule(function()
+				vim.api.nvim_win_set_cursor(win, cursor)
+				M.enter()
+			end)
+			return
+		end
+		vim.schedule(function()
+			vim.api.nvim_win_set_cursor(win, cursor)
+			M.enter()
+			enter_chord_mode(bufnr, shape_name, merged)
+		end)
+	end)
 end
 
 --- Open a tuning picker. Safe to call from both normal mode and tab mode.
