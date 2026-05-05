@@ -10,9 +10,11 @@ Neovim 0.12+
 
 ```lua
 vim.pack.add("https://github.com/hc-nolan/tablature.nvim")
+require('tablature').setup()
 ```
 
-No `setup()` call is required. Call it only to override defaults.
+See below for changing the default configuration.
+
 
 ## Usage
 

@@ -1,4 +1,3 @@
-require("tablature").setup()
 local hl = require("tablature.highlights")
 hl.init_highlights()
 
