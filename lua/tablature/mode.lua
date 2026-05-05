@@ -76,7 +76,12 @@ local function move_to(ctx, new_pos, new_string_idx)
 	-- Update highlights: highlight full measure width
 	local measure_start_pos = { measure = new_pos.measure, beat = 0 }
 	local measure_beats = staff.get_measure_beats(state.bufnr, state.staff_top, new_pos.measure)
-	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.buf_position_to_col(state.bufnr, state.staff_top, measure_start_pos), measure_beats * 3)
+	hl.highlight_beat_column(
+		state.bufnr,
+		ctx.staff_top,
+		staff.buf_position_to_col(state.bufnr, state.staff_top, measure_start_pos),
+		measure_beats * 3
+	)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
 
@@ -152,8 +157,7 @@ function M.move_left()
 	if p.beat < 0 then
 		-- Wrap into the last beat of the previous measure
 		local prev_measure = p.measure - 1
-		local prev_beats = prev_measure >= 0
-			and staff.get_measure_beats(state.bufnr, state.staff_top, prev_measure)
+		local prev_beats = prev_measure >= 0 and staff.get_measure_beats(state.bufnr, state.staff_top, prev_measure)
 			or config.options.beats
 		p.beat = prev_beats - 1
 		p.measure = p.measure - 1
@@ -608,7 +612,11 @@ function M.insert_chord()
 		vim.notify("tablature: no chord shapes defined for tuning " .. state.tuning.name, vim.log.levels.WARN)
 		vim.schedule(function()
 			vim.api.nvim_win_set_cursor(win, cursor)
-			M.enter()
+			-- If using a picker like Snacks that opens a new window, tab mode will be
+			-- exited, so re-enter it
+			if not state.active then
+				M.enter()
+			end
 		end)
 		return
 	end
@@ -617,13 +625,21 @@ function M.insert_chord()
 		if not shape_name then
 			vim.schedule(function()
 				vim.api.nvim_win_set_cursor(win, cursor)
-				M.enter()
+				-- If using a picker like Snacks that opens a new window, tab mode will be
+				-- exited, so re-enter it
+				if not state.active then
+					M.enter()
+				end
 			end)
 			return
 		end
 		vim.schedule(function()
 			vim.api.nvim_win_set_cursor(win, cursor)
-			M.enter()
+			-- If using a picker like Snacks that opens a new window, tab mode will be
+			-- exited, so re-enter it
+			if not state.active then
+				M.enter()
+			end
 			enter_chord_mode(bufnr, shape_name, merged)
 		end)
 	end)
@@ -686,7 +702,11 @@ function M.pick_tuning()
 			if was_active then
 				vim.schedule(function()
 					vim.api.nvim_win_set_cursor(win, cursor)
-					M.enter()
+					-- If using a picker like Snacks that opens a new window, tab mode will be
+					-- exited, so re-enter it
+					if not state.active then
+						M.enter()
+					end
 				end)
 			end
 			return
@@ -707,7 +727,11 @@ function M.pick_tuning()
 		if was_active then
 			vim.schedule(function()
 				vim.api.nvim_win_set_cursor(win, cursor)
-				M.enter()
+				-- If using a picker like Snacks that opens a new window, tab mode will be
+				-- exited, so re-enter it
+				if not state.active then
+					M.enter()
+				end
 			end)
 		end
 	end)
