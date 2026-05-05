@@ -16,29 +16,29 @@ local M = {}
 local tab_layer = nil
 
 --- Create a keymap layer that saves and restores displaced buffer-local keymaps.
---- Returns a table with:
----   layer.set(key, callback, desc)  — save any existing map, install ours
----   layer.uninstall()               — remove all installed maps, restore saved ones
----   layer.get_keylist()             — return {key, desc} list of installed maps
 ---@param bufnr integer
----@return table
+---@return tablature.Layer
 local function new_keymap_layer(bufnr)
 	local installed = {}
 	local saved = {}
 	local keylist = {}
 
+	---@class tablature.Layer  Keymap layer with helper methods
 	local layer = {}
 
-	function layer.set(key, callback, desc)
-		local existing = vim.fn.maparg(key, "n", false, true)
+	--- Save existing map and install new one
+	---@param keymap tablature.KeyMap
+	function layer.set(keymap)
+		local existing = vim.fn.maparg(keymap.key, "n", false, true)
 		if existing and existing.buffer == 1 then
-			saved[key] = existing
+			saved[keymap.key] = existing
 		end
-		vim.keymap.set("n", key, callback, { buffer = bufnr, nowait = true, desc = desc })
-		installed[#installed + 1] = key
-		keylist[#keylist + 1] = { key = key, desc = desc }
+		vim.keymap.set("n", keymap.key, keymap.func, { buffer = bufnr, nowait = true, desc = keymap.desc })
+		installed[#installed + 1] = keymap.key
+		keylist[#keylist + 1] = { key = keymap.key, desc = keymap.desc }
 	end
 
+	-- Remove all installed maps and restore saved ones
 	function layer.uninstall()
 		if not vim.api.nvim_buf_is_valid(bufnr) then
 			return
@@ -60,6 +60,8 @@ local function new_keymap_layer(bufnr)
 		end
 	end
 
+	-- Return list of installed maps
+	---@return {key: string, desc: string}
 	function layer.get_keylist()
 		return keylist
 	end
@@ -260,15 +262,19 @@ local function install_keymaps(bufnr)
 	tab_layer = new_keymap_layer(bufnr)
 
 	for _, mapping in pairs(config.options.tabmode_keys) do
-		tab_layer.set(mapping.key, mapping.func, mapping.desc)
+		tab_layer.set({ key = mapping.key, func = mapping.func, desc = mapping.desc })
 	end
 
 	-- Writing: fret numbers 0-9
 	for _, digit in ipairs({ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" }) do
 		local d = digit -- capture for closure
-		tab_layer.set(d, function()
-			write_fret(d)
-		end, "Tab mode: write fret " .. d)
+		tab_layer.set({
+			key = d,
+			func = function()
+				write_fret(d)
+			end,
+			desc = "Tab mode: write fret " .. d,
+		})
 	end
 end
 
