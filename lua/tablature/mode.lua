@@ -8,12 +8,12 @@ local config = require("tablature.config")
 local state = require("tablature.state")
 local staff = require("tablature.staff")
 local hl = require("tablature.highlights")
+local chord = require("tablature.chord_mode")
 
 local M = {}
 
--- Active keymap layers (nil when not in the corresponding mode).
+-- Active keymap layer for tab mode (nil when not active).
 local tab_layer = nil
-local chord_layer = nil
 
 --- Create a keymap layer that saves and restores displaced buffer-local keymaps.
 --- Returns a table with:
@@ -280,9 +280,6 @@ local function uninstall_keymaps()
 	end
 end
 
--- Forward declaration — defined in the chord mode section below.
-local exit_chord_mode
-
 --- Enter tab editing mode on the current buffer.
 --- The cursor must already be on a staff line.
 function M.enter()
@@ -349,7 +346,7 @@ function M.exit()
 
 	local bufnr = state.bufnr
 
-	exit_chord_mode() -- no-op if not in chord mode
+	chord.exit() -- no-op if not in chord mode
 	uninstall_keymaps()
 	hl.clear(bufnr)
 
@@ -357,179 +354,6 @@ function M.exit()
 	pcall(vim.api.nvim_del_augroup_by_name, "TablatureModeExit_" .. bufnr)
 
 	state.reset()
-end
-
--- ── Chord mode ───────────────────────────────────────────────────────────────
--- A persistent sub-mode layered on top of tab mode. Stays active until the
--- user presses <Esc> or q (which returns to plain tab mode, NOT a full exit).
-
-local CHORD_PREVIEW_NS = vim.api.nvim_create_namespace("tablature_chord_preview")
-
-local chord_mode = {
-	active = false,
-	shapes = {}, -- merged {[name]=shape} for current session
-	shape_names = {}, -- sorted keys of chord_mode.shapes
-	shape_idx = 1, -- index into chord_mode.shape_names
-	offset = 0, -- root fret offset applied to all numeric values
-}
-
---- Redraw the chord preview overlay at the current cursor position.
-local function draw_chord_preview(bufnr)
-	vim.api.nvim_buf_clear_namespace(bufnr, CHORD_PREVIEW_NS, 0, -1)
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local shape_name = chord_mode.shape_names[chord_mode.shape_idx]
-	local shape = chord_mode.shapes[shape_name]
-	local voicing = staff.apply_offset(shape, chord_mode.offset)
-	local num_strings = #state.tuning.strings
-	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
-	for string_idx = 0, num_strings - 1 do
-		local v = voicing[num_strings - string_idx] or "-"
-		local row = ctx.staff_top + string_idx
-		vim.api.nvim_buf_set_extmark(bufnr, CHORD_PREVIEW_NS, row, col, {
-			virt_text = { { v, "TabChordPreview" } },
-			virt_text_pos = "overlay",
-		})
-	end
-	hl.show_chord_legend(
-		CHORD_PREVIEW_NS,
-		bufnr,
-		ctx.staff_top,
-		shape_name,
-		chord_mode.offset,
-		chord_layer.get_keylist()
-	)
-end
-
---- Exit chord mode, restoring the tab-mode keymaps that chord mode shadowed.
---- Returns to plain tab mode (does NOT call M.exit()).
-exit_chord_mode = function()
-	if not chord_mode.active then
-		return
-	end
-	chord_mode.active = false
-
-	local bufnr = state.bufnr
-	if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
-		vim.api.nvim_buf_clear_namespace(bufnr, CHORD_PREVIEW_NS, 0, -1)
-	end
-
-	if chord_layer then
-		chord_layer.uninstall()
-		chord_layer = nil
-	end
-
-	chord_mode.shapes = {}
-	chord_mode.shape_names = {}
-	chord_mode.shape_idx = 1
-	chord_mode.offset = 0
-
-	-- Restore the tab mode legend
-	if state.bufnr and state.staff_top and vim.api.nvim_buf_is_valid(state.bufnr) then
-		hl.show_tab_legend(state.bufnr, state.staff_top)
-	end
-end
-
---- Enter chord mode. Tab mode must already be active.
---- Installs chord-mode keymaps on top of the existing tab-mode keymaps.
----@param bufnr integer
----@param initial_shape_name string  name of the shape to start with
----@param shapes table<string, string[]>  merged {[name]=shape} table for this session
-local function enter_chord_mode(bufnr, initial_shape_name, shapes)
-	if chord_mode.active then
-		exit_chord_mode()
-	end
-
-	local names = vim.tbl_keys(shapes)
-	table.sort(names)
-
-	chord_mode.active = true
-	chord_layer = new_keymap_layer(bufnr)
-	chord_mode.shapes = shapes
-	chord_mode.shape_names = names
-	chord_mode.offset = 0
-
-	-- Hide the tab legend while chord mode shows its own
-	hl.clear_tab_legend(bufnr)
-
-	-- Find the index of the initially selected shape
-	chord_mode.shape_idx = 1
-	for i, name in ipairs(names) do
-		if name == initial_shape_name then
-			chord_mode.shape_idx = i
-			break
-		end
-	end
-
-	-- Tab / S-Tab: cycle through shapes
-	chord_layer.set("<Tab>", function()
-		chord_mode.shape_idx = (chord_mode.shape_idx % #chord_mode.shape_names) + 1
-		draw_chord_preview(bufnr)
-	end, "Chord mode: next shape")
-
-	chord_layer.set("<S-Tab>", function()
-		chord_mode.shape_idx = ((chord_mode.shape_idx - 2) % #chord_mode.shape_names) + 1
-		draw_chord_preview(bufnr)
-	end, "Chord mode: previous shape")
-
-	-- + / = / - : adjust root fret offset
-	local function offset_up()
-		chord_mode.offset = chord_mode.offset + 1
-		draw_chord_preview(bufnr)
-	end
-	local function offset_down()
-		chord_mode.offset = math.max(0, chord_mode.offset - 1)
-		draw_chord_preview(bufnr)
-	end
-	chord_layer.set("+", offset_up, "Chord mode: root fret up")
-	chord_layer.set("=", offset_up, "Chord mode: root fret up")
-	chord_layer.set("-", offset_down, "Chord mode: root fret down")
-
-	-- CR: write the current voicing and stay in chord mode
-	chord_layer.set("<CR>", function()
-		local ctx = get_cursor_context()
-		if ctx then
-			local shape_name = chord_mode.shape_names[chord_mode.shape_idx]
-			local shape = chord_mode.shapes[shape_name]
-			local voicing = staff.apply_offset(shape, chord_mode.offset)
-			staff.write_chord(bufnr, ctx.staff_top, ctx.pos, voicing)
-		end
-		draw_chord_preview(bufnr)
-	end, "Chord mode: insert chord and stay")
-
-	chord_layer.set("<Esc>", function()
-		exit_chord_mode()
-	end, "Chord mode: exit to tab mode")
-
-	chord_layer.set("q", function()
-		exit_chord_mode()
-	end, "Chord mode: exit to tab mode")
-
-	chord_layer.set("C", function()
-		exit_chord_mode()
-		M.insert_chord()
-	end, "Chord mode: re-pick shape")
-
-	local move_map = {
-		{ key = "h", fn = M.move_left },
-		{ key = "<Left>", fn = M.move_left },
-		{ key = "l", fn = M.move_right },
-		{ key = "<Right>", fn = M.move_right },
-		{ key = "H", fn = M.move_previous_measure },
-		{ key = "L", fn = M.move_next_measure },
-		{ key = "{", fn = M.move_previous_measure },
-		{ key = "}", fn = M.move_next_measure },
-	}
-	for _, m in ipairs(move_map) do
-		chord_layer.set(m.key, function()
-			m.fn()
-			draw_chord_preview(bufnr)
-		end, "Chord mode: move")
-	end
-
-	draw_chord_preview(bufnr)
 end
 
 --- Restore cursor position and re-enter tab mode if a picker (e.g. Snacks)
@@ -586,7 +410,17 @@ function M.insert_chord()
 			if not state.active then
 				M.enter()
 			end
-			enter_chord_mode(bufnr, shape_name, merged)
+			chord.enter(bufnr, shape_name, merged, {
+				new_layer = new_keymap_layer,
+				get_context = get_cursor_context,
+				movement = {
+					left = M.move_left,
+					right = M.move_right,
+					previous_measure = M.move_previous_measure,
+					next_measure = M.move_next_measure,
+				},
+				reenter = M.insert_chord,
+			})
 		end)
 	end)
 end
