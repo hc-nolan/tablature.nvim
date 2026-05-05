@@ -107,8 +107,9 @@ function M.relabel_staff(bufnr, staff_top, old_label_width, new_tuning)
 		end
 	end
 
+	local n = #new_tuning.strings
 	for i, string_name in ipairs(new_tuning.strings) do
-		local row = staff_top + i - 1
+		local row = staff_top + n - i
 		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 		if line then
 			local content_after_label = line:sub(old_label_width + 1)

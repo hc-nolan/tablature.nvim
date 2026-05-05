@@ -21,7 +21,7 @@ describe("staff.relabel_staff", function()
 			"E|--------------|",
 		}
 		local bufnr = make_buffer(lines)
-		local drop_d = { name = "Drop D", strings = { "e", "B", "G", "D", "A", "D" } }
+		local drop_d = { name = "Drop D", strings = { "D", "A", "D", "G", "B", "e" } }
 		staff.relabel_staff(bufnr, 0, 1, drop_d)
 		local result = buf_lines(bufnr)
 		-- Only the last line should change (E → D)
@@ -40,7 +40,7 @@ describe("staff.relabel_staff", function()
 			"E|--------------|",
 		}
 		local bufnr = make_buffer(lines)
-		local drop_d = { name = "Drop D", strings = { "e", "B", "G", "D", "A", "D" } }
+		local drop_d = { name = "Drop D", strings = { "D", "A", "D", "G", "B", "e" } }
 		staff.relabel_staff(bufnr, 0, 1, drop_d)
 		local result = buf_lines(bufnr)
 		-- First line: label stays "e", content preserved
@@ -57,7 +57,7 @@ describe("staff.relabel_staff", function()
 			"E|--------------|",
 		}
 		local bufnr = make_buffer(lines)
-		local wide = { name = "Wide", strings = { "e ", "B ", "G ", "D ", "Ab", "Eb" } }
+		local wide = { name = "Wide", strings = { "Eb", "Ab", "D ", "G ", "B ", "e " } }
 		staff.relabel_staff(bufnr, 0, 1, wide)
 		local result = buf_lines(bufnr)
 		-- Labels are now 2 chars: "e " etc. Content starts shifted right by 1
