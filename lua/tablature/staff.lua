@@ -245,8 +245,7 @@ function M.write_char(bufnr, staff_top, string_idx, pos, char)
 	vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
 end
 
---- Write a two-digit fret at pos on the given string, and clear the overflow
---- slot on all other strings (they get filler in both content and overflow).
+--- Write a two-digit fret at pos on the given string
 ---@param bufnr integer
 ---@param staff_top integer
 ---@param string_idx integer  0-indexed
@@ -254,24 +253,15 @@ end
 ---@param tens string   first digit character
 ---@param ones string   second digit character
 function M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
-	local cfg = config.options
-	local num_strings = #state.tuning.strings
 	local col = M.position_to_col(pos)
 
-	for i = 0, num_strings - 1 do
-		local row = staff_top + i
-		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
-		if line then
-			local new_line
-			if i == string_idx then
-				-- Write both digits into content + overflow slots
-				new_line = line:sub(1, col) .. tens .. ones .. line:sub(col + 3)
-			else
-				-- Clear both slots on other strings
-				new_line = line:sub(1, col) .. cfg.filler .. cfg.filler .. line:sub(col + 3)
-			end
-			vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
-		end
+	local row = staff_top + string_idx
+	local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+	if line then
+		local new_line
+		-- Write both digits into content + overflow slots
+		new_line = line:sub(1, col) .. tens .. ones .. line:sub(col + 3)
+		vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
 	end
 end
 
