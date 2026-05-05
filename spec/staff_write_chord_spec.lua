@@ -88,41 +88,27 @@ describe("staff.write_double_digit", function()
 	end)
 end)
 
--- Helper: apply a root offset to a shape the same way mode.lua does.
-local function apply_offset(shape, offset)
-	local voicing = {}
-	for i, v in ipairs(shape) do
-		if v == "x" then
-			voicing[i] = "x"
-		else
-			local n = tonumber(v)
-			voicing[i] = n and tostring(n + offset) or v
-		end
-	end
-	return voicing
-end
-
-describe("apply_offset (chord shape helper)", function()
+describe("staff.apply_offset", function()
 	it("leaves muted strings unchanged", function()
 		local shape = { "x", "0", "2", "2", "2", "0" }
-		local result = apply_offset(shape, 3)
+		local result = staff.apply_offset(shape, 3)
 		assert.are.equal("x", result[1])
 	end)
 
 	it("adds offset to all numeric values", function()
 		local shape = { "0", "2", "2", "1", "0", "0" } -- E-shape major
-		local result = apply_offset(shape, 1) -- → F barre
+		local result = staff.apply_offset(shape, 1) -- → F barre
 		assert.are.same({ "1", "3", "3", "2", "1", "1" }, result)
 	end)
 
 	it("offset 0 is identity", function()
 		local shape = { "x", "0", "2", "2", "1", "0" }
-		assert.are.same(shape, apply_offset(shape, 0))
+		assert.are.same(shape, staff.apply_offset(shape, 0))
 	end)
 
 	it("handles double-digit results", function()
 		local shape = { "0", "2", "2", "1", "0", "0" }
-		local result = apply_offset(shape, 10)
+		local result = staff.apply_offset(shape, 10)
 		assert.are.equal("10", result[1])
 		assert.are.equal("12", result[2])
 	end)

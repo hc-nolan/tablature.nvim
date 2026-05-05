@@ -450,4 +450,23 @@ function M.set_measure_beats(bufnr, staff_top, measure_idx, new_beats)
 	end
 end
 
+--- Apply a root-fret offset to a chord shape, producing an absolute voicing.
+--- "x" entries are passed through unchanged; numeric string values have the
+--- offset added.
+---@param shape tablature.ChordShape
+---@param offset integer  root fret to add to every non-muted string
+---@return string[]
+function M.apply_offset(shape, offset)
+	local voicing = {}
+	for i, v in ipairs(shape) do
+		if v == "x" then
+			voicing[i] = "x"
+		else
+			local n = tonumber(v)
+			voicing[i] = n and tostring(n + offset) or v
+		end
+	end
+	return voicing
+end
+
 return M

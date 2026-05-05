@@ -1,4 +1,6 @@
 -- Defines and applies highlight groups for tab mode visual feedback.
+local EXTMARK_MODE_INDICATOR = 1
+local EXTMARK_CHORD_LEGEND = 99
 
 local M = {}
 
@@ -47,7 +49,7 @@ local function build_legend_lines(mappings, strip_prefix)
 	local order = {}
 	local groups = {}
 	for _, mapping in ipairs(mappings) do
-		local desc = strip_prefix and mapping.desc:gsub("^" .. strip_prefix, "") or mapping.desc
+		local desc = strip_prefix and mapping.desc:gsub("^" .. vim.pesc(strip_prefix), "") or mapping.desc
 		desc = desc:sub(1, 1):upper() .. desc:sub(2)
 		if not groups[desc] then
 			groups[desc] = {}
@@ -115,7 +117,7 @@ function M.show_chord_legend(chord_ns, bufnr, staff_top, shape_name, fret_offset
 	vim.api.nvim_buf_set_extmark(bufnr, chord_ns, bottom_row, 0, {
 		virt_lines = virt_lines,
 		virt_lines_above = false,
-		id = 99,
+		id = EXTMARK_CHORD_LEGEND,
 	})
 end
 
@@ -157,7 +159,7 @@ function M.show_mode_indicator(bufnr, staff_top, pos)
 	vim.api.nvim_buf_set_extmark(bufnr, ns, virt_row, 0, {
 		virt_text = { { text, "TablatureMode" } },
 		virt_text_pos = "eol",
-		id = 1, -- stable ID so we can update it in-place
+		id = EXTMARK_MODE_INDICATOR, -- stable ID so we can update it in-place
 	})
 end
 

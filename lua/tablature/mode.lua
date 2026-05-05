@@ -11,12 +11,61 @@ local hl = require("tablature.highlights")
 
 local M = {}
 
--- Keymaps we install in tab mode. Stored so we can remove them on exit.
-local TAB_MODE_KEYS = {}
+-- Active keymap layers (nil when not in the corresponding mode).
+local tab_layer = nil
+local chord_layer = nil
 
--- Track which buffer-local keymaps existed before we installed ours,
--- so we can restore them on exit.
-local saved_keymaps = {}
+--- Create a keymap layer that saves and restores displaced buffer-local keymaps.
+--- Returns a table with:
+---   layer.set(key, callback, desc)  — save any existing map, install ours
+---   layer.uninstall()               — remove all installed maps, restore saved ones
+---   layer.get_keylist()             — return {key, desc} list of installed maps
+---@param bufnr integer
+---@return table
+local function new_keymap_layer(bufnr)
+	local installed = {}
+	local saved = {}
+	local keylist = {}
+
+	local layer = {}
+
+	function layer.set(key, callback, desc)
+		local existing = vim.fn.maparg(key, "n", false, true)
+		if existing and existing.buffer == 1 then
+			saved[key] = existing
+		end
+		vim.keymap.set("n", key, callback, { buffer = bufnr, nowait = true, desc = desc })
+		installed[#installed + 1] = key
+		keylist[#keylist + 1] = { key = key, desc = desc }
+	end
+
+	function layer.uninstall()
+		if not vim.api.nvim_buf_is_valid(bufnr) then
+			return
+		end
+		for _, key in ipairs(installed) do
+			pcall(vim.keymap.del, "n", key, { buffer = bufnr })
+		end
+		for key, map in pairs(saved) do
+			if map.callback then
+				vim.keymap.set("n", key, map.callback, { buffer = bufnr, desc = map.desc })
+			elseif map.rhs and map.rhs ~= "" then
+				vim.keymap.set("n", key, map.rhs, {
+					buffer = bufnr,
+					desc = map.desc,
+					noremap = map.noremap == 1,
+					silent = map.silent == 1,
+				})
+			end
+		end
+	end
+
+	function layer.get_keylist()
+		return keylist
+	end
+
+	return layer
+end
 
 --- Get the current cursor's grid position and string index.
 --- Returns nil if cursor is not on a valid staff cell.
@@ -127,26 +176,6 @@ local function write_fret(char)
 	end
 end
 
---- Save existing buffer-local keymap for a key (if any), then set our override.
----@param bufnr integer
----@param key string
----@param callback function
----@param desc string
-local function set_tab_keymap(bufnr, key, callback, desc)
-	-- Check for existing buffer-local keymap to save
-	local existing = vim.fn.maparg(key, "n", false, true)
-	if existing and existing.buffer == 1 then
-		saved_keymaps[key] = existing
-	end
-
-	vim.keymap.set("n", key, callback, {
-		buffer = bufnr,
-		nowait = true,
-		desc = desc,
-	})
-	TAB_MODE_KEYS[#TAB_MODE_KEYS + 1] = key
-end
-
 function M.move_left()
 	local ctx = get_cursor_context()
 	if not ctx then
@@ -236,57 +265,32 @@ end
 function M.clear_cell_and_move_left()
 	M.clear_cell()
 	M.move_left()
-	state.pending_digit = false
 end
 
 --- Install all tab-mode keymaps on the buffer.
 ---@param bufnr integer
 local function install_keymaps(bufnr)
-	TAB_MODE_KEYS = {}
-	saved_keymaps = {}
+	tab_layer = new_keymap_layer(bufnr)
 
-	local keys = config.options.tabmode_keys
-	for _, mapping in pairs(keys) do
-		set_tab_keymap(bufnr, mapping.key, mapping.func, mapping.desc)
+	for _, mapping in pairs(config.options.tabmode_keys) do
+		tab_layer.set(mapping.key, mapping.func, mapping.desc)
 	end
 
 	-- Writing: fret numbers 0-9
 	for _, digit in ipairs({ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" }) do
 		local d = digit -- capture for closure
-		set_tab_keymap(bufnr, d, function()
+		tab_layer.set(d, function()
 			write_fret(d)
 		end, "Tab mode: write fret " .. d)
 	end
 end
 
 --- Remove all tab-mode keymaps, restoring saved ones.
----@param bufnr integer
-local function uninstall_keymaps(bufnr)
-	-- Only delete if buffer is still valid
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		return
+local function uninstall_keymaps()
+	if tab_layer then
+		tab_layer.uninstall()
+		tab_layer = nil
 	end
-
-	for _, key in ipairs(TAB_MODE_KEYS) do
-		pcall(vim.keymap.del, "n", key, { buffer = bufnr })
-	end
-
-	-- Restore any previously existing keymaps
-	for key, map in pairs(saved_keymaps) do
-		if map.callback then
-			vim.keymap.set("n", key, map.callback, { buffer = bufnr, desc = map.desc })
-		elseif map.rhs and map.rhs ~= "" then
-			vim.keymap.set("n", key, map.rhs, {
-				buffer = bufnr,
-				desc = map.desc,
-				noremap = map.noremap == 1,
-				silent = map.silent == 1,
-			})
-		end
-	end
-
-	TAB_MODE_KEYS = {}
-	saved_keymaps = {}
 end
 
 -- Forward declaration — defined in the chord mode section below.
@@ -362,7 +366,7 @@ function M.exit()
 	local bufnr = state.bufnr
 
 	exit_chord_mode() -- no-op if not in chord mode
-	uninstall_keymaps(bufnr)
+	uninstall_keymaps()
 	hl.clear(bufnr)
 
 	-- Clean up the auto-exit augroup
@@ -378,31 +382,10 @@ end
 local CHORD_PREVIEW_NS = vim.api.nvim_create_namespace("tablature_chord_preview")
 
 local chord_mode_active = false
-local CHORD_MODE_KEYS = {}
-local saved_chord_keymaps = {}
 local chord_mode_shapes = {} -- merged {[name]=shape} for current session
 local chord_mode_shape_names = {} -- sorted keys of chord_mode_shapes
 local chord_mode_shape_idx = 1 -- index into chord_mode_shape_names
 local chord_mode_offset = 0 -- root fret offset applied to all numeric values
-local chord_mode_keylist = {} -- {key, desc} list for legend rendering
-
---- Apply the current root offset to a shape, producing an absolute voicing.
---- "x" entries are passed through unchanged.
----@param shape string[]
----@param offset integer
----@return string[]
-local function apply_offset(shape, offset)
-	local voicing = {}
-	for i, v in ipairs(shape) do
-		if v == "x" then
-			voicing[i] = "x"
-		else
-			local n = tonumber(v)
-			voicing[i] = n and tostring(n + offset) or v
-		end
-	end
-	return voicing
-end
 
 --- Redraw the chord preview overlay at the current cursor position.
 local function draw_chord_preview(bufnr)
@@ -413,7 +396,7 @@ local function draw_chord_preview(bufnr)
 	end
 	local shape_name = chord_mode_shape_names[chord_mode_shape_idx]
 	local shape = chord_mode_shapes[shape_name]
-	local voicing = apply_offset(shape, chord_mode_offset)
+	local voicing = staff.apply_offset(shape, chord_mode_offset)
 	local num_strings = #state.tuning.strings
 	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
 	for string_idx = 0, num_strings - 1 do
@@ -424,18 +407,7 @@ local function draw_chord_preview(bufnr)
 			virt_text_pos = "overlay",
 		})
 	end
-	hl.show_chord_legend(CHORD_PREVIEW_NS, bufnr, ctx.staff_top, shape_name, chord_mode_offset, chord_mode_keylist)
-end
-
---- Save an existing buffer-local keymap (if any) then install a chord-mode override.
-local function set_chord_keymap(bufnr, key, callback, desc)
-	local existing = vim.fn.maparg(key, "n", false, true)
-	if existing and existing.buffer == 1 then
-		saved_chord_keymaps[key] = existing
-	end
-	vim.keymap.set("n", key, callback, { buffer = bufnr, nowait = true, desc = desc })
-	CHORD_MODE_KEYS[#CHORD_MODE_KEYS + 1] = key
-	chord_mode_keylist[#chord_mode_keylist + 1] = { key = key, desc = desc }
+	hl.show_chord_legend(CHORD_PREVIEW_NS, bufnr, ctx.staff_top, shape_name, chord_mode_offset, chord_layer.get_keylist())
 end
 
 --- Exit chord mode, restoring the tab-mode keymaps that chord mode shadowed.
@@ -449,26 +421,13 @@ exit_chord_mode = function()
 	local bufnr = state.bufnr
 	if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
 		vim.api.nvim_buf_clear_namespace(bufnr, CHORD_PREVIEW_NS, 0, -1)
-		for _, key in ipairs(CHORD_MODE_KEYS) do
-			pcall(vim.keymap.del, "n", key, { buffer = bufnr })
-		end
-		for key, map in pairs(saved_chord_keymaps) do
-			if map.callback then
-				vim.keymap.set("n", key, map.callback, { buffer = bufnr, desc = map.desc })
-			elseif map.rhs and map.rhs ~= "" then
-				vim.keymap.set("n", key, map.rhs, {
-					buffer = bufnr,
-					desc = map.desc,
-					noremap = map.noremap == 1,
-					silent = map.silent == 1,
-				})
-			end
-		end
 	end
 
-	CHORD_MODE_KEYS = {}
-	saved_chord_keymaps = {}
-	chord_mode_keylist = {}
+	if chord_layer then
+		chord_layer.uninstall()
+		chord_layer = nil
+	end
+
 	chord_mode_shapes = {}
 	chord_mode_shape_names = {}
 	chord_mode_shape_idx = 1
@@ -494,9 +453,7 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	table.sort(names)
 
 	chord_mode_active = true
-	CHORD_MODE_KEYS = {}
-	saved_chord_keymaps = {}
-	chord_mode_keylist = {}
+	chord_layer = new_keymap_layer(bufnr)
 	chord_mode_shapes = shapes
 	chord_mode_shape_names = names
 	chord_mode_offset = 0
@@ -514,12 +471,12 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	end
 
 	-- Tab / S-Tab: cycle through shapes
-	set_chord_keymap(bufnr, "<Tab>", function()
+	chord_layer.set("<Tab>", function()
 		chord_mode_shape_idx = (chord_mode_shape_idx % #chord_mode_shape_names) + 1
 		draw_chord_preview(bufnr)
 	end, "Chord mode: next shape")
 
-	set_chord_keymap(bufnr, "<S-Tab>", function()
+	chord_layer.set("<S-Tab>", function()
 		chord_mode_shape_idx = ((chord_mode_shape_idx - 2) % #chord_mode_shape_names) + 1
 		draw_chord_preview(bufnr)
 	end, "Chord mode: previous shape")
@@ -533,31 +490,31 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 		chord_mode_offset = math.max(0, chord_mode_offset - 1)
 		draw_chord_preview(bufnr)
 	end
-	set_chord_keymap(bufnr, "+", offset_up, "Chord mode: root fret up")
-	set_chord_keymap(bufnr, "=", offset_up, "Chord mode: root fret up")
-	set_chord_keymap(bufnr, "-", offset_down, "Chord mode: root fret down")
+	chord_layer.set("+", offset_up, "Chord mode: root fret up")
+	chord_layer.set("=", offset_up, "Chord mode: root fret up")
+	chord_layer.set("-", offset_down, "Chord mode: root fret down")
 
 	-- CR: write the current voicing and stay in chord mode
-	set_chord_keymap(bufnr, "<CR>", function()
+	chord_layer.set("<CR>", function()
 		local ctx = get_cursor_context()
 		if ctx then
 			local shape_name = chord_mode_shape_names[chord_mode_shape_idx]
 			local shape = chord_mode_shapes[shape_name]
-			local voicing = apply_offset(shape, chord_mode_offset)
+			local voicing = staff.apply_offset(shape, chord_mode_offset)
 			staff.write_chord(bufnr, ctx.staff_top, ctx.pos, voicing)
 		end
 		draw_chord_preview(bufnr)
 	end, "Chord mode: insert chord and stay")
 
-	set_chord_keymap(bufnr, "<Esc>", function()
+	chord_layer.set("<Esc>", function()
 		exit_chord_mode()
 	end, "Chord mode: exit to tab mode")
 
-	set_chord_keymap(bufnr, "q", function()
+	chord_layer.set("q", function()
 		exit_chord_mode()
 	end, "Chord mode: exit to tab mode")
 
-	set_chord_keymap(bufnr, "C", function()
+	chord_layer.set("C", function()
 		exit_chord_mode()
 		M.insert_chord()
 	end, "Chord mode: re-pick shape")
@@ -574,7 +531,7 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	}
 	for _, m in ipairs(move_map) do
 		local key, fn = m[1], m[2]
-		set_chord_keymap(bufnr, key, function()
+		chord_layer.set(key, function()
 			fn()
 			draw_chord_preview(bufnr)
 		end, "Chord mode: move")
@@ -645,7 +602,7 @@ function M.insert_chord()
 	end)
 end
 
---- Open a tuning picker. Safe to call from both normal mode and tab mode.
+--- Open a beat picker.
 --- Prompt the user for a new beat count and reformat the current measure.
 function M.set_beats()
 	local ctx = get_cursor_context()

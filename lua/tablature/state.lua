@@ -18,7 +18,7 @@ M.label_width = nil
 
 -- Used for double-digit notes. When one number is pressed, this is set to true
 -- When any movement is triggered, it is reset
-M.pending_digit = nil
+M.pending_digit = false
 
 function M.set_tuning(tuning)
 	M.tuning = tuning
