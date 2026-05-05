@@ -79,15 +79,15 @@ describe("staff.write_double_digit", function()
 		assert.are.equal("12", lines[3]:sub(3, 4)) -- row 3 (1-indexed)
 	end)
 
-	it("clears content+overflow on all other strings", function()
+	it("does not affect other strings", function()
 		local bufnr = make_staff()
 		-- Write something on another string first
 		staff.write_char(bufnr, 0, 0, pos0, "5")
-		-- Now write double-digit on string_idx=2; should clear string_idx=0
+		-- Now write double-digit on string_idx=2; should NOT touch string_idx=0
 		staff.write_double_digit(bufnr, 0, 2, pos0, "1", "0")
 		local lines = buf_lines(bufnr)
-		-- string_idx=0 (row 1) should have filler in both content and overflow slots
-		assert.are.equal("--", lines[1]:sub(3, 4))
+		-- string_idx=0 (row 1) should be untouched: content="5", overflow=filler
+		assert.are.equal("5-", lines[1]:sub(3, 4))
 	end)
 end)
 

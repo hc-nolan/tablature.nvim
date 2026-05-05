@@ -45,4 +45,25 @@ describe("state.reset", function()
 		assert.are.equal(t, state.tuning)
 		assert.are.equal(1, state.label_width)
 	end)
+
+	it("clears pending_digit on reset", function()
+		state.pending_digit = true
+		state.reset()
+		assert.is_false(state.pending_digit)
+	end)
+end)
+
+describe("state.pending_digit", function()
+	it("can be toggled", function()
+		state.pending_digit = false
+		assert.is_false(state.pending_digit)
+		state.pending_digit = true
+		assert.is_true(state.pending_digit)
+	end)
+
+	it("is cleared by reset", function()
+		state.pending_digit = true
+		state.reset()
+		assert.is_false(state.pending_digit)
+	end)
 end)

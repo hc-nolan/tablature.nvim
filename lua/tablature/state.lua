@@ -16,6 +16,10 @@ M.tuning = nil
 -- Label width is derived from active tuning
 M.label_width = nil
 
+-- Used for double-digit notes. When one number is pressed, this is set to true
+-- When any movement is triggered, it is reset
+M.pending_digit = nil
+
 function M.set_tuning(tuning)
 	M.tuning = tuning
 	-- Precompute label width
@@ -32,6 +36,7 @@ function M.reset()
 	M.active = false
 	M.bufnr = nil
 	M.staff_top = nil
+	M.pending_digit = false
 end
 
 return M
