@@ -216,6 +216,13 @@ M.defaults = {
 				require("tablature.mode").insert_chord()
 			end,
 		},
+		{
+			key = "<leader>td",
+			desc = "Tab mode: set measure divisions",
+			func = function()
+				require("tablature.mode").set_divisions()
+			end,
+		},
 	},
 }
 

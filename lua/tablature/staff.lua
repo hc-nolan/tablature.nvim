@@ -294,4 +294,185 @@ function M.write_chord(bufnr, staff_top, pos, voicing)
 	end
 end
 
+--- Scan the top staff row to get the division count for a specific measure.
+--- Derives divisions from the actual buffer text, so it is correct even when
+--- individual measures have been reformatted to different division counts.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param measure_idx integer  0-indexed
+---@return integer
+function M.get_measure_divisions(bufnr, staff_top, measure_idx)
+	local cfg = config.options
+	local bpm = cfg.beats_per_measure
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return cfg.divisions
+	end
+
+	-- Skip label+sep, then skip measure_idx * bpm beats
+	local pos = label_width + sep_width + 1 -- 1-indexed Lua string position
+	for _ = 1, measure_idx * bpm do
+		local sp = line:find(sep, pos, true)
+		if not sp then
+			return cfg.divisions
+		end
+		pos = sp + sep_width
+	end
+
+	-- Measure's first beat starts at pos; find its trailing sep
+	local sp = line:find(sep, pos, true)
+	if not sp then
+		return cfg.divisions
+	end
+	return math.floor((sp - pos) / 3)
+end
+
+--- Convert a position to a 0-indexed column by scanning the actual buffer content.
+--- Unlike position_to_col, this handles measures with different division counts.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param pos tablature.staff.position
+---@return integer
+function M.buf_position_to_col(bufnr, staff_top, pos)
+	local cfg = config.options
+	local bpm = cfg.beats_per_measure
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return M.position_to_col(pos)
+	end
+
+	local total_beats = pos.measure * bpm + pos.beat
+	local scan = label_width + sep_width + 1 -- 1-indexed
+
+	for _ = 1, total_beats do
+		local sp = line:find(sep, scan, true)
+		if not sp then
+			return M.position_to_col(pos)
+		end
+		scan = sp + sep_width
+	end
+
+	-- scan is the 1-indexed start of the target beat; convert to 0-indexed col
+	return (scan - 1) + pos.sub * 3
+end
+
+--- Convert a 0-indexed column to a position by scanning the actual buffer content.
+--- Unlike col_to_position, this handles measures with different division counts.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param col integer  0-indexed column
+---@return tablature.staff.position|nil
+function M.buf_col_to_position(bufnr, staff_top, col)
+	local cfg = config.options
+	local bpm = cfg.beats_per_measure
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return M.col_to_position(col)
+	end
+
+	local content_start = label_width + sep_width -- 0-indexed
+	if col < content_start then
+		return nil
+	end
+
+	local scan = content_start + 1 -- 1-indexed
+	local total_beat = 0
+
+	while scan <= #line do
+		local sp = line:find(sep, scan, true)
+		if not sp then
+			break
+		end
+
+		local beat_col_start = scan - 1 -- 0-indexed
+		local beat_content_len = sp - scan -- = div * 3
+
+		if col >= beat_col_start and col < beat_col_start + beat_content_len then
+			local offset_in_beat = col - beat_col_start
+			local sub = math.floor(offset_in_beat / 3)
+			return {
+				measure = math.floor(total_beat / bpm),
+				beat = total_beat % bpm,
+				sub = sub,
+			}
+		end
+
+		-- col is on the sep itself → not a valid cell
+		if col == beat_col_start + beat_content_len then
+			return nil
+		end
+
+		total_beat = total_beat + 1
+		scan = sp + sep_width
+	end
+
+	return nil
+end
+
+--- Reformat a single measure to use a new division count.
+--- Inserts filler columns when expanding, trims trailing columns when shrinking.
+--- All string rows in the staff are updated.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param measure_idx integer  0-indexed
+---@param new_div integer
+function M.set_measure_divisions(bufnr, staff_top, measure_idx, new_div)
+	local cfg = config.options
+	local bpm = cfg.beats_per_measure
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+	local filler = cfg.filler
+	local num_strings = #state.tuning.strings
+
+	for s = 0, num_strings - 1 do
+		local row = staff_top + s
+		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+		if line then
+			-- Walk to the start of the target measure
+			local pos = label_width + sep_width + 1 -- 1-indexed
+			for _ = 1, measure_idx * bpm do
+				local sp = line:find(sep, pos, true)
+				pos = sp + sep_width
+			end
+			local measure_start = pos
+
+			-- Rebuild each beat with new_div width
+			local new_beats = {}
+			local beat_pos = measure_start
+			for _ = 1, bpm do
+				local sp = line:find(sep, beat_pos, true)
+				local beat_content = line:sub(beat_pos, sp - 1)
+				local old_div = math.floor(#beat_content / 3)
+
+				if new_div > old_div then
+					beat_content = beat_content .. string.rep(filler, (new_div - old_div) * 3)
+				elseif new_div < old_div then
+					beat_content = beat_content:sub(1, new_div * 3)
+				end
+
+				new_beats[#new_beats + 1] = beat_content .. sep
+				beat_pos = sp + sep_width
+			end
+
+			local new_measure_str = table.concat(new_beats)
+			local before = line:sub(1, measure_start - 1)
+			local after = line:sub(beat_pos)
+			vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { before .. new_measure_str .. after })
+		end
+	end
+end
+
 return M

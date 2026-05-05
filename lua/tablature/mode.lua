@@ -33,7 +33,7 @@ local function get_cursor_context()
 	end
 
 	local string_idx = row - top -- 0-indexed from top
-	local pos = staff.col_to_position(col)
+	local pos = staff.buf_col_to_position(state.bufnr, state.staff_top, col)
 	if not pos then
 		return nil
 	end
@@ -48,12 +48,12 @@ end
 ---@param new_string_idx integer|nil  if nil, keep current string
 local function move_to(ctx, new_pos, new_string_idx)
 	local cfg = config.options
-	local div = cfg.divisions
 	local bpm = cfg.beats_per_measure
 	local default_measures = cfg.default_measures
 	local num_strings = #state.tuning.strings
 
-	-- Clamp sub
+	-- Clamp sub to the actual division count of the target measure
+	local div = staff.get_measure_divisions(state.bufnr, state.staff_top, new_pos.measure)
 	new_pos.sub = math.max(0, math.min(div - 1, new_pos.sub))
 
 	-- Handle beat overflow/underflow → carry into measure
@@ -83,13 +83,13 @@ local function move_to(ctx, new_pos, new_string_idx)
 	si = math.max(0, math.min(num_strings - 1, si))
 
 	local new_row = ctx.staff_top + si + 1 -- 1-indexed for nvim_win_set_cursor
-	local new_col = staff.position_to_col(new_pos)
+	local new_col = staff.buf_position_to_col(state.bufnr, state.staff_top, new_pos)
 
 	vim.api.nvim_win_set_cursor(0, { new_row, new_col })
 
 	-- Update highlights
 	local beat_start_pos = { measure = new_pos.measure, beat = new_pos.beat, sub = 0 }
-	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.position_to_col(beat_start_pos), div * 3)
+	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.buf_position_to_col(state.bufnr, state.staff_top, beat_start_pos), div * 3)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
 
@@ -104,7 +104,7 @@ local function write_fret(char)
 	end
 
 	-- Check if the current cell already has a digit (double-digit fret case)
-	local col = staff.position_to_col(ctx.pos)
+	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
 	local line = vim.api.nvim_buf_get_lines(
 		state.bufnr,
 		ctx.staff_top + ctx.string_idx,
@@ -163,7 +163,17 @@ function M.move_left()
 	local p = vim.deepcopy(ctx.pos)
 	p.sub = p.sub - 1
 	if p.sub < 0 then
-		p.sub = config.options.divisions - 1
+		-- Wrapping into the previous beat; get that beat's measure's divisions
+		local prev_beat = p.beat - 1
+		local prev_measure = p.measure
+		if prev_beat < 0 then
+			prev_measure = prev_measure - 1
+			prev_beat = config.options.beats_per_measure - 1
+		end
+		local prev_div = prev_measure >= 0
+			and staff.get_measure_divisions(state.bufnr, state.staff_top, prev_measure)
+			or config.options.divisions
+		p.sub = prev_div - 1
 		p.beat = p.beat - 1
 	end
 	move_to(ctx, p)
@@ -176,8 +186,9 @@ function M.move_right()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
+	local cur_div = staff.get_measure_divisions(state.bufnr, state.staff_top, p.measure)
 	p.sub = p.sub + 1
-	if p.sub >= config.options.divisions then
+	if p.sub >= cur_div then
 		p.sub = 0
 		p.beat = p.beat + 1
 	end
@@ -347,10 +358,11 @@ function M.enter()
 
 	-- Initial highlight + indicator
 	local col = cursor[2]
-	local pos = staff.col_to_position(col)
+	local pos = staff.buf_col_to_position(bufnr, top, col)
 	if pos then
 		local beat_start = { measure = pos.measure, beat = pos.beat, sub = 0 }
-		hl.highlight_beat_column(bufnr, top, staff.position_to_col(beat_start), config.options.divisions * 3)
+		local div = staff.get_measure_divisions(bufnr, top, pos.measure)
+		hl.highlight_beat_column(bufnr, top, staff.buf_position_to_col(bufnr, top, beat_start), div * 3)
 		hl.show_mode_indicator(bufnr, top, pos)
 	end
 
@@ -441,7 +453,7 @@ local function draw_chord_preview(bufnr)
 	local shape = chord_mode_shapes[shape_name]
 	local voicing = apply_offset(shape, chord_mode_offset)
 	local num_strings = #state.tuning.strings
-	local col = staff.position_to_col(ctx.pos)
+	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
 	for string_idx = 0, num_strings - 1 do
 		local v = voicing[num_strings - string_idx] or "-"
 		local row = ctx.staff_top + string_idx
@@ -658,6 +670,39 @@ end
 
 --- Open a tuning picker. Safe to call from both normal mode and tab mode.
 --- When called from tab mode, restores cursor and re-enters after selection.
+--- Prompt the user for a new division count and reformat the current measure.
+function M.set_divisions()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local bufnr = state.bufnr
+	local staff_top = state.staff_top
+	local measure_idx = ctx.pos.measure
+	local current_div = staff.get_measure_divisions(bufnr, staff_top, measure_idx)
+
+	vim.ui.input({
+		prompt = "Divisions for measure " .. (measure_idx + 1) .. " (current: " .. current_div .. "): ",
+		default = tostring(current_div),
+	}, function(input)
+		if not input or input == "" then
+			return
+		end
+		local new_div = tonumber(input)
+		if not new_div or new_div < 1 or math.floor(new_div) ~= new_div then
+			vim.notify("tablature: divisions must be a positive integer", vim.log.levels.WARN)
+			return
+		end
+		vim.schedule(function()
+			staff.set_measure_divisions(bufnr, staff_top, measure_idx, new_div)
+			-- Move cursor to start of measure so position is still valid
+			local new_pos = { measure = measure_idx, beat = ctx.pos.beat, sub = 0 }
+			local new_col = staff.buf_position_to_col(bufnr, staff_top, new_pos)
+			vim.api.nvim_win_set_cursor(0, { ctx.staff_top + ctx.string_idx + 1, new_col })
+		end)
+	end)
+end
+
 function M.pick_tuning()
 	local was_active = state.active
 	local win = vim.api.nvim_get_current_win()
