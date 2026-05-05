@@ -20,16 +20,11 @@ M.label_width = nil
 -- When any movement is triggered, it is reset
 M.pending_digit = false
 
+---@param tuning tablature.Tuning
 function M.set_tuning(tuning)
 	M.tuning = tuning
 	-- Precompute label width
-	local longest = 0
-	for _, v in ipairs(tuning.strings) do
-		if #v > longest then
-			longest = #v
-		end
-	end
-	M.label_width = longest
+	M.label_width = require("tablature.staff").compute_label_width(tuning)
 end
 
 function M.reset()

@@ -81,9 +81,7 @@ function M.insert_below_cursor(bufnr)
 		for _ = 1, 2 do
 			table.insert(lines, 1, "")
 		end
-		-- Account for the new lines in cursor row
-		-- find_staff_top returns 0-indexed row, we need 1-indexed, so account for
-		-- that too
+		-- 2 blank lines prepended + 1 for 0->1 index conversion
 		cursor_position = row + 3
 	end
 
@@ -93,6 +91,18 @@ function M.insert_below_cursor(bufnr)
 	vim.api.nvim_win_set_cursor(0, { cursor_position, first_col })
 end
 
+---@param tuning tablature.Tuning
+---@return integer
+function M.compute_label_width(tuning)
+	local label_width = 0
+	for _, s in ipairs(tuning.strings) do
+		if #s > label_width then
+			label_width = #s
+		end
+	end
+	return label_width
+end
+
 --- Rewrite the string labels of an existing staff block to match a new tuning.
 --- The number of strings in new_tuning must match the existing block.
 ---@param bufnr integer
@@ -100,12 +110,7 @@ end
 ---@param old_label_width integer  label width the staff was generated with
 ---@param new_tuning tablature.Tuning
 function M.relabel_staff(bufnr, staff_top, old_label_width, new_tuning)
-	local new_label_width = 0
-	for _, s in ipairs(new_tuning.strings) do
-		if #s > new_label_width then
-			new_label_width = #s
-		end
-	end
+	local new_label_width = M.compute_label_width(new_tuning)
 
 	local n = #new_tuning.strings
 	for i, string_name in ipairs(new_tuning.strings) do
@@ -248,9 +253,8 @@ function M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
 	local row = staff_top + string_idx
 	local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 	if line then
-		local new_line
 		-- Write both digits into content + overflow slots
-		new_line = line:sub(1, col) .. tens .. ones .. line:sub(col + 3)
+		local new_line = line:sub(1, col) .. tens .. ones .. line:sub(col + 3)
 		vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
 	end
 end
@@ -267,18 +271,18 @@ function M.write_chord(bufnr, staff_top, pos, voicing)
 	for string_idx = 0, num_strings - 1 do
 		-- string_idx 0 = top of staff = highest string = last element of voicing
 		local v = voicing[num_strings - string_idx]
-		if not v then
-			-- no value for this string, leave as-is
-		elseif v == "x" then
-			M.write_char(bufnr, staff_top, string_idx, pos, "x")
-		else
-			local n = tonumber(v)
-			if n and n >= 10 then
-				local tens = tostring(math.floor(n / 10))
-				local ones = tostring(n % 10)
-				M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
-			elseif n then
-				M.write_char(bufnr, staff_top, string_idx, pos, tostring(n))
+		if v then
+			if v == "x" then
+				M.write_char(bufnr, staff_top, string_idx, pos, "x")
+			else
+				local n = tonumber(v)
+				if n and n >= 10 then
+					local tens = tostring(math.floor(n / 10))
+					local ones = tostring(n % 10)
+					M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
+				elseif n then
+					M.write_char(bufnr, staff_top, string_idx, pos, tostring(n))
+				end
 			end
 		end
 	end
@@ -318,6 +322,9 @@ function M.get_measure_beats(bufnr, staff_top, measure_idx)
 
 	-- Skip label+sep, then skip measure_idx measures
 	local pos = find_measure_start(line, measure_idx, label_width, sep, sep_width)
+	if not pos then
+		return cfg.beats
+	end
 
 	-- Target measure starts at pos; find its trailing sep
 	local sp = line:find(sep, pos, true)
@@ -346,6 +353,9 @@ function M.buf_position_to_col(bufnr, staff_top, pos)
 
 	-- Walk pos.measure measures to find the start of the target measure
 	local scan = find_measure_start(line, pos.measure, label_width, sep, sep_width)
+	if not scan then
+		return M.position_to_col(pos)
+	end
 	-- scan is the 1-indexed start of the target measure; add beat offset
 	return (scan - 1) + pos.beat * 3
 end

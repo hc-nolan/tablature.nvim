@@ -82,7 +82,7 @@ local function get_cursor_context()
 	end
 
 	local string_idx = row - top -- 0-indexed from top
-	local pos = staff.buf_col_to_position(state.bufnr, state.staff_top, col)
+	local pos = staff.buf_col_to_position(state.bufnr, top, col)
 	if not pos then
 		return nil
 	end
@@ -175,7 +175,9 @@ local function write_fret(char)
 	end
 end
 
---- Helper function for movement functions
+--- Fetch cursor context and run fn(ctx, p) where p is a mutable copy of ctx.pos.
+--- Clears pending_digit afterwards. No-op if cursor is not on a valid staff cell.
+---@param fn function
 local function with_cursor(fn)
 	local ctx = get_cursor_context()
 	if not ctx then
@@ -242,12 +244,9 @@ function M.move_previous_string()
 end
 
 function M.clear_cell()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, config.options.filler)
-	state.pending_digit = false
+	with_cursor(function(ctx, _p)
+		staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, config.options.filler)
+	end)
 end
 
 function M.clear_cell_and_move_left()
@@ -457,9 +456,11 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 
 	-- Find the index of the initially selected shape
 	chord_mode.shape_idx = 1
-	local index = vim.fn.index(names, initial_shape_name)
-	if index then
-		chord_mode.shape_idx = index
+	for i, name in ipairs(names) do
+		if name == initial_shape_name then
+			chord_mode.shape_idx = i
+			break
+		end
 	end
 
 	-- Tab / S-Tab: cycle through shapes
