@@ -20,7 +20,7 @@ local saved_keymaps = {}
 
 --- Get the current cursor's grid position and string index.
 --- Returns nil if cursor is not on a valid staff cell.
----@return {staff_top: integer, string_idx: integer, pos: table}|nil
+---@return {staff_top: integer, string_idx: integer, pos: tablature.staff.position}|nil
 local function get_cursor_context()
 	local bufnr = state.bufnr
 	local cursor = vim.api.nvim_win_get_cursor(0)
@@ -113,11 +113,25 @@ local function write_fret(char)
 	)[1]
 	local existing = line and line:sub(col + 1, col + 1)
 
+	local function default_case()
+		-- Default case is a single-digit note
+		-- Use write_double_digit with filler char as second 'digit' to overwrite
+		-- any existing double-digit notes
+		staff.write_double_digit(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, char, config.options.filler)
+		state.pending_digit = true
+	end
+
 	if existing and existing:match("%d") and char:match("%d") then
-		-- Write double-digit fret: existing is tens digit, char is ones digit
-		staff.write_double_digit(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, existing, char)
+		-- Check if pending_digit is true
+		if state.pending_digit then
+			-- Write double-digit fret: existing is tens digit, char is ones digit
+			staff.write_double_digit(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, existing, char)
+			state.pending_digit = false
+		else
+			default_case()
+		end
 	else
-		staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, char)
+		default_case()
 	end
 end
 
@@ -153,6 +167,7 @@ function M.move_left()
 		p.beat = p.beat - 1
 	end
 	move_to(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_right()
@@ -167,6 +182,7 @@ function M.move_right()
 		p.beat = p.beat + 1
 	end
 	move_to(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_previous_beat()
@@ -178,6 +194,7 @@ function M.move_previous_beat()
 	p.sub = 0
 	p.beat = p.beat - 1
 	move_to(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_next_beat()
@@ -189,6 +206,7 @@ function M.move_next_beat()
 	p.sub = 0
 	p.beat = p.beat + 1
 	move_to(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_previous_measure()
@@ -201,6 +219,7 @@ function M.move_previous_measure()
 	p.beat = 0
 	p.measure = p.measure - 1
 	move_to(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_next_measure()
@@ -213,6 +232,7 @@ function M.move_next_measure()
 	p.beat = 0
 	p.measure = p.measure + 1
 	move_to(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_next_string()
@@ -221,6 +241,7 @@ function M.move_next_string()
 		return
 	end
 	move_to(ctx, ctx.pos, ctx.string_idx + 1)
+	state.pending_digit = false
 end
 
 function M.move_previous_string()
@@ -229,6 +250,7 @@ function M.move_previous_string()
 		return
 	end
 	move_to(ctx, ctx.pos, ctx.string_idx - 1)
+	state.pending_digit = false
 end
 
 function M.clear_cell()
@@ -237,11 +259,13 @@ function M.clear_cell()
 		return
 	end
 	staff.write_char(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, config.options.filler)
+	state.pending_digit = false
 end
 
 function M.clear_cell_and_move_left()
 	M.clear_cell()
 	M.move_left()
+	state.pending_digit = false
 end
 
 --- Install all tab-mode keymaps on the buffer.
@@ -383,10 +407,10 @@ local CHORD_PREVIEW_NS = vim.api.nvim_create_namespace("tablature_chord_preview"
 local chord_mode_active = false
 local CHORD_MODE_KEYS = {}
 local saved_chord_keymaps = {}
-local chord_mode_shapes = {}     -- merged {[name]=shape} for current session
+local chord_mode_shapes = {} -- merged {[name]=shape} for current session
 local chord_mode_shape_names = {} -- sorted keys of chord_mode_shapes
-local chord_mode_shape_idx = 1   -- index into chord_mode_shape_names
-local chord_mode_offset = 0      -- root fret offset applied to all numeric values
+local chord_mode_shape_idx = 1 -- index into chord_mode_shape_names
+local chord_mode_offset = 0 -- root fret offset applied to all numeric values
 
 --- Apply the current root offset to a shape, producing an absolute voicing.
 --- "x" entries are passed through unchanged.
@@ -427,7 +451,8 @@ local function draw_chord_preview(bufnr)
 		})
 	end
 	local indicator = (" %s  fret: %d  <Tab> shape  +/- fret  <CR> insert  C pick  <Esc>/<q> exit"):format(
-		shape_name, chord_mode_offset
+		shape_name,
+		chord_mode_offset
 	)
 	local bottom_row = ctx.staff_top + num_strings - 1
 	vim.api.nvim_buf_set_extmark(bufnr, CHORD_PREVIEW_NS, bottom_row, 0, {
@@ -561,14 +586,14 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	end, "Chord mode: re-pick shape")
 
 	local move_map = {
-		{ "h",       M.move_left },
-		{ "<Left>",  M.move_left },
-		{ "l",       M.move_right },
+		{ "h", M.move_left },
+		{ "<Left>", M.move_left },
+		{ "l", M.move_right },
 		{ "<Right>", M.move_right },
-		{ "H",       M.move_previous_beat },
-		{ "L",       M.move_next_beat },
-		{ "{",       M.move_previous_measure },
-		{ "}",       M.move_next_measure },
+		{ "H", M.move_previous_beat },
+		{ "L", M.move_next_beat },
+		{ "{", M.move_previous_measure },
+		{ "}", M.move_next_measure },
 	}
 	for _, m in ipairs(move_map) do
 		local key, fn = m[1], m[2]
