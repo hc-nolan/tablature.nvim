@@ -124,12 +124,11 @@ local function move_to(ctx, new_pos, new_string_idx)
 
 	-- Update highlights: highlight full measure width
 	local measure_start_pos = { measure = new_pos.measure, beat = 0 }
-	local measure_beats = staff.get_measure_beats(state.bufnr, state.staff_top, new_pos.measure)
 	hl.highlight_beat_column(
 		state.bufnr,
 		ctx.staff_top,
 		staff.buf_position_to_col(state.bufnr, state.staff_top, measure_start_pos),
-		measure_beats * 3
+		beats * 3
 	)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
@@ -154,7 +153,7 @@ local function write_fret(char)
 	)[1]
 	local existing = line and line:sub(col + 1, col + 1)
 
-	local function default_case()
+	local function write_single_fret()
 		-- Default case is a single-digit note
 		-- Use write_double_digit with filler char as second 'digit' to overwrite
 		-- any existing double-digit notes
@@ -169,88 +168,77 @@ local function write_fret(char)
 			staff.write_double_digit(state.bufnr, ctx.staff_top, ctx.string_idx, ctx.pos, existing, char)
 			state.pending_digit = false
 		else
-			default_case()
+			write_single_fret()
 		end
 	else
-		default_case()
+		write_single_fret()
 	end
+end
+
+--- Helper function for movement functions
+local function with_cursor(fn)
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local p = { measure = ctx.pos.measure, beat = ctx.pos.beat }
+	fn(ctx, p)
+	state.pending_digit = false
 end
 
 function M.move_left()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.beat = p.beat - 1
-	if p.beat < 0 then
-		-- Wrap into the last beat of the previous measure
-		local prev_measure = p.measure - 1
-		local prev_beats = prev_measure >= 0 and staff.get_measure_beats(state.bufnr, state.staff_top, prev_measure)
-			or config.options.beats
-		p.beat = prev_beats - 1
-		p.measure = p.measure - 1
-	end
-	move_to(ctx, p)
-	state.pending_digit = false
+	with_cursor(function(ctx, p)
+		p.beat = p.beat - 1
+		if p.beat < 0 then
+			-- Wrap into the last beat of the previous measure
+			local prev_measure = p.measure - 1
+			local prev_beats = prev_measure >= 0 and staff.get_measure_beats(state.bufnr, state.staff_top, prev_measure)
+				or config.options.beats
+			p.beat = prev_beats - 1
+			p.measure = p.measure - 1
+		end
+		move_to(ctx, p)
+	end)
 end
 
 function M.move_right()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	local cur_beats = staff.get_measure_beats(state.bufnr, state.staff_top, p.measure)
-	p.beat = p.beat + 1
-	if p.beat >= cur_beats then
-		p.beat = 0
-		p.measure = p.measure + 1
-	end
-	move_to(ctx, p)
-	state.pending_digit = false
+	with_cursor(function(ctx, p)
+		local cur_beats = staff.get_measure_beats(state.bufnr, state.staff_top, p.measure)
+		p.beat = p.beat + 1
+		if p.beat >= cur_beats then
+			p.beat = 0
+			p.measure = p.measure + 1
+		end
+		move_to(ctx, p)
+	end)
 end
 
 function M.move_previous_measure()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.beat = 0
-	p.measure = p.measure - 1
-	move_to(ctx, p)
-	state.pending_digit = false
+	with_cursor(function(ctx, p)
+		p.beat = 0
+		p.measure = p.measure - 1
+		move_to(ctx, p)
+	end)
 end
 
 function M.move_next_measure()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.beat = 0
-	p.measure = p.measure + 1
-	move_to(ctx, p)
-	state.pending_digit = false
+	with_cursor(function(ctx, p)
+		p.beat = 0
+		p.measure = p.measure + 1
+		move_to(ctx, p)
+	end)
 end
 
 function M.move_next_string()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	move_to(ctx, ctx.pos, ctx.string_idx + 1)
-	state.pending_digit = false
+	with_cursor(function(ctx, p)
+		move_to(ctx, p, ctx.string_idx + 1)
+	end)
 end
 
 function M.move_previous_string()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	move_to(ctx, ctx.pos, ctx.string_idx - 1)
-	state.pending_digit = false
+	with_cursor(function(ctx, p)
+		move_to(ctx, p, ctx.string_idx - 1)
+	end)
 end
 
 function M.clear_cell()
@@ -333,15 +321,16 @@ function M.enter()
 
 	-- Auto-exit if cursor leaves the buffer
 	local aug = vim.api.nvim_create_augroup("TablatureModeExit_" .. bufnr, { clear = true })
+	local function auto_exit()
+		if state.active and state.bufnr == bufnr then
+			M.exit()
+		end
+	end
 	vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
 		group = aug,
 		buffer = bufnr,
 		once = true,
-		callback = function()
-			if state.active and state.bufnr == bufnr then
-				M.exit()
-			end
-		end,
+		callback = auto_exit,
 	})
 
 	-- Wipe buffer on bufwipeout
@@ -349,11 +338,7 @@ function M.enter()
 		group = aug,
 		buffer = bufnr,
 		once = true,
-		callback = function()
-			if state.active and state.bufnr == bufnr then
-				M.exit()
-			end
-		end,
+		callback = auto_exit,
 	})
 end
 
@@ -381,11 +366,13 @@ end
 
 local CHORD_PREVIEW_NS = vim.api.nvim_create_namespace("tablature_chord_preview")
 
-local chord_mode_active = false
-local chord_mode_shapes = {} -- merged {[name]=shape} for current session
-local chord_mode_shape_names = {} -- sorted keys of chord_mode_shapes
-local chord_mode_shape_idx = 1 -- index into chord_mode_shape_names
-local chord_mode_offset = 0 -- root fret offset applied to all numeric values
+local chord_mode = {
+	active = false,
+	shapes = {}, -- merged {[name]=shape} for current session
+	shape_names = {}, -- sorted keys of chord_mode.shapes
+	shape_idx = 1, -- index into chord_mode.shape_names
+	offset = 0, -- root fret offset applied to all numeric values
+}
 
 --- Redraw the chord preview overlay at the current cursor position.
 local function draw_chord_preview(bufnr)
@@ -394,9 +381,9 @@ local function draw_chord_preview(bufnr)
 	if not ctx then
 		return
 	end
-	local shape_name = chord_mode_shape_names[chord_mode_shape_idx]
-	local shape = chord_mode_shapes[shape_name]
-	local voicing = staff.apply_offset(shape, chord_mode_offset)
+	local shape_name = chord_mode.shape_names[chord_mode.shape_idx]
+	local shape = chord_mode.shapes[shape_name]
+	local voicing = staff.apply_offset(shape, chord_mode.offset)
 	local num_strings = #state.tuning.strings
 	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
 	for string_idx = 0, num_strings - 1 do
@@ -407,16 +394,23 @@ local function draw_chord_preview(bufnr)
 			virt_text_pos = "overlay",
 		})
 	end
-	hl.show_chord_legend(CHORD_PREVIEW_NS, bufnr, ctx.staff_top, shape_name, chord_mode_offset, chord_layer.get_keylist())
+	hl.show_chord_legend(
+		CHORD_PREVIEW_NS,
+		bufnr,
+		ctx.staff_top,
+		shape_name,
+		chord_mode.offset,
+		chord_layer.get_keylist()
+	)
 end
 
 --- Exit chord mode, restoring the tab-mode keymaps that chord mode shadowed.
 --- Returns to plain tab mode (does NOT call M.exit()).
 exit_chord_mode = function()
-	if not chord_mode_active then
+	if not chord_mode.active then
 		return
 	end
-	chord_mode_active = false
+	chord_mode.active = false
 
 	local bufnr = state.bufnr
 	if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
@@ -428,10 +422,10 @@ exit_chord_mode = function()
 		chord_layer = nil
 	end
 
-	chord_mode_shapes = {}
-	chord_mode_shape_names = {}
-	chord_mode_shape_idx = 1
-	chord_mode_offset = 0
+	chord_mode.shapes = {}
+	chord_mode.shape_names = {}
+	chord_mode.shape_idx = 1
+	chord_mode.offset = 0
 
 	-- Restore the tab mode legend
 	if state.bufnr and state.staff_top and vim.api.nvim_buf_is_valid(state.bufnr) then
@@ -445,49 +439,47 @@ end
 ---@param initial_shape_name string  name of the shape to start with
 ---@param shapes table<string, string[]>  merged {[name]=shape} table for this session
 local function enter_chord_mode(bufnr, initial_shape_name, shapes)
-	if chord_mode_active then
+	if chord_mode.active then
 		exit_chord_mode()
 	end
 
 	local names = vim.tbl_keys(shapes)
 	table.sort(names)
 
-	chord_mode_active = true
+	chord_mode.active = true
 	chord_layer = new_keymap_layer(bufnr)
-	chord_mode_shapes = shapes
-	chord_mode_shape_names = names
-	chord_mode_offset = 0
+	chord_mode.shapes = shapes
+	chord_mode.shape_names = names
+	chord_mode.offset = 0
 
 	-- Hide the tab legend while chord mode shows its own
 	hl.clear_tab_legend(bufnr)
 
 	-- Find the index of the initially selected shape
-	chord_mode_shape_idx = 1
-	for i, name in ipairs(names) do
-		if name == initial_shape_name then
-			chord_mode_shape_idx = i
-			break
-		end
+	chord_mode.shape_idx = 1
+	local index = vim.fn.index(names, initial_shape_name)
+	if index then
+		chord_mode.shape_idx = index
 	end
 
 	-- Tab / S-Tab: cycle through shapes
 	chord_layer.set("<Tab>", function()
-		chord_mode_shape_idx = (chord_mode_shape_idx % #chord_mode_shape_names) + 1
+		chord_mode.shape_idx = (chord_mode.shape_idx % #chord_mode.shape_names) + 1
 		draw_chord_preview(bufnr)
 	end, "Chord mode: next shape")
 
 	chord_layer.set("<S-Tab>", function()
-		chord_mode_shape_idx = ((chord_mode_shape_idx - 2) % #chord_mode_shape_names) + 1
+		chord_mode.shape_idx = ((chord_mode.shape_idx - 2) % #chord_mode.shape_names) + 1
 		draw_chord_preview(bufnr)
 	end, "Chord mode: previous shape")
 
 	-- + / = / - : adjust root fret offset
 	local function offset_up()
-		chord_mode_offset = chord_mode_offset + 1
+		chord_mode.offset = chord_mode.offset + 1
 		draw_chord_preview(bufnr)
 	end
 	local function offset_down()
-		chord_mode_offset = math.max(0, chord_mode_offset - 1)
+		chord_mode.offset = math.max(0, chord_mode.offset - 1)
 		draw_chord_preview(bufnr)
 	end
 	chord_layer.set("+", offset_up, "Chord mode: root fret up")
@@ -498,9 +490,9 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	chord_layer.set("<CR>", function()
 		local ctx = get_cursor_context()
 		if ctx then
-			local shape_name = chord_mode_shape_names[chord_mode_shape_idx]
-			local shape = chord_mode_shapes[shape_name]
-			local voicing = staff.apply_offset(shape, chord_mode_offset)
+			local shape_name = chord_mode.shape_names[chord_mode.shape_idx]
+			local shape = chord_mode.shapes[shape_name]
+			local voicing = staff.apply_offset(shape, chord_mode.offset)
 			staff.write_chord(bufnr, ctx.staff_top, ctx.pos, voicing)
 		end
 		draw_chord_preview(bufnr)
@@ -520,24 +512,36 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	end, "Chord mode: re-pick shape")
 
 	local move_map = {
-		{ "h", M.move_left },
-		{ "<Left>", M.move_left },
-		{ "l", M.move_right },
-		{ "<Right>", M.move_right },
-		{ "H", M.move_previous_measure },
-		{ "L", M.move_next_measure },
-		{ "{", M.move_previous_measure },
-		{ "}", M.move_next_measure },
+		{ key = "h", fn = M.move_left },
+		{ key = "<Left>", fn = M.move_left },
+		{ key = "l", fn = M.move_right },
+		{ key = "<Right>", fn = M.move_right },
+		{ key = "H", fn = M.move_previous_measure },
+		{ key = "L", fn = M.move_next_measure },
+		{ key = "{", fn = M.move_previous_measure },
+		{ key = "}", fn = M.move_next_measure },
 	}
 	for _, m in ipairs(move_map) do
-		local key, fn = m[1], m[2]
-		chord_layer.set(key, function()
-			fn()
+		chord_layer.set(m.key, function()
+			m.fn()
 			draw_chord_preview(bufnr)
 		end, "Chord mode: move")
 	end
 
 	draw_chord_preview(bufnr)
+end
+
+--- Restore cursor position and re-enter tab mode if a picker (e.g. Snacks)
+--- opened a new window and triggered our BufLeave/WinLeave auto-exit.
+---@param win integer
+---@param cursor integer[]
+local function restore_tab_mode(win, cursor)
+	vim.schedule(function()
+		vim.api.nvim_win_set_cursor(win, cursor)
+		if not state.active then
+			M.enter()
+		end
+	end)
 end
 
 --- Open a shape picker and enter chord mode with the selection.
@@ -567,33 +571,17 @@ function M.insert_chord()
 
 	if #shape_names == 0 then
 		vim.notify("tablature: no chord shapes defined for tuning " .. state.tuning.name, vim.log.levels.WARN)
-		vim.schedule(function()
-			vim.api.nvim_win_set_cursor(win, cursor)
-			-- If using a picker like Snacks that opens a new window, tab mode will be
-			-- exited, so re-enter it
-			if not state.active then
-				M.enter()
-			end
-		end)
+		restore_tab_mode(win, cursor)
 		return
 	end
 
 	vim.ui.select(shape_names, { prompt = "Select chord shape" }, function(shape_name)
 		if not shape_name then
-			vim.schedule(function()
-				vim.api.nvim_win_set_cursor(win, cursor)
-				-- If using a picker like Snacks that opens a new window, tab mode will be
-				-- exited, so re-enter it
-				if not state.active then
-					M.enter()
-				end
-			end)
+			restore_tab_mode(win, cursor)
 			return
 		end
 		vim.schedule(function()
 			vim.api.nvim_win_set_cursor(win, cursor)
-			-- If using a picker like Snacks that opens a new window, tab mode will be
-			-- exited, so re-enter it
 			if not state.active then
 				M.enter()
 			end
@@ -657,14 +645,7 @@ function M.pick_tuning()
 	}, function(choice)
 		if not choice then
 			if was_active then
-				vim.schedule(function()
-					vim.api.nvim_win_set_cursor(win, cursor)
-					-- If using a picker like Snacks that opens a new window, tab mode will be
-					-- exited, so re-enter it
-					if not state.active then
-						M.enter()
-					end
-				end)
+				restore_tab_mode(win, cursor)
 			end
 			return
 		end
@@ -682,14 +663,7 @@ function M.pick_tuning()
 			vim.notify("tablature: tuning changed to " .. choice.name, vim.log.levels.INFO)
 		end
 		if was_active then
-			vim.schedule(function()
-				vim.api.nvim_win_set_cursor(win, cursor)
-				-- If using a picker like Snacks that opens a new window, tab mode will be
-				-- exited, so re-enter it
-				if not state.active then
-					M.enter()
-				end
-			end)
+			restore_tab_mode(win, cursor)
 		end
 	end)
 end

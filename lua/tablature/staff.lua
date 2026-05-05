@@ -284,6 +284,20 @@ function M.write_chord(bufnr, staff_top, pos, voicing)
 	end
 end
 
+--- Returns 1-indexed start position of measure_idx in line, or nil if out of bounds.
+---@return integer|nil
+local function find_measure_start(line, measure_idx, label_width, sep, sep_width)
+	local pos = label_width + sep_width + 1
+	for _ = 1, measure_idx do
+		local sp = line:find(sep, pos, true)
+		if not sp then
+			return nil
+		end
+		pos = sp + sep_width
+	end
+	return pos
+end
+
 --- Scan the top staff row to get the beat count for a specific measure.
 --- Derives the beat count from the actual buffer text, so it is correct even
 --- when individual measures have been reformatted to different beat counts.
@@ -303,14 +317,7 @@ function M.get_measure_beats(bufnr, staff_top, measure_idx)
 	end
 
 	-- Skip label+sep, then skip measure_idx measures
-	local pos = label_width + sep_width + 1 -- 1-indexed Lua string position
-	for _ = 1, measure_idx do
-		local sp = line:find(sep, pos, true)
-		if not sp then
-			return cfg.beats
-		end
-		pos = sp + sep_width
-	end
+	local pos = find_measure_start(line, measure_idx, label_width, sep, sep_width)
 
 	-- Target measure starts at pos; find its trailing sep
 	local sp = line:find(sep, pos, true)
@@ -338,15 +345,7 @@ function M.buf_position_to_col(bufnr, staff_top, pos)
 	end
 
 	-- Walk pos.measure measures to find the start of the target measure
-	local scan = label_width + sep_width + 1 -- 1-indexed
-	for _ = 1, pos.measure do
-		local sp = line:find(sep, scan, true)
-		if not sp then
-			return M.position_to_col(pos)
-		end
-		scan = sp + sep_width
-	end
-
+	local scan = find_measure_start(line, pos.measure, label_width, sep, sep_width)
 	-- scan is the 1-indexed start of the target measure; add beat offset
 	return (scan - 1) + pos.beat * 3
 end
@@ -422,12 +421,7 @@ function M.set_measure_beats(bufnr, staff_top, measure_idx, new_beats)
 		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 		if line then
 			-- Walk to the start of the target measure
-			local pos = label_width + sep_width + 1 -- 1-indexed
-			for _ = 1, measure_idx do
-				local sp = line:find(sep, pos, true)
-				pos = sp + sep_width
-			end
-			local measure_start = pos
+			local measure_start = find_measure_start(line, measure_idx, label_width, sep, sep_width)
 
 			-- Find the measure's trailing sep
 			local sp = line:find(sep, measure_start, true)

@@ -5,6 +5,8 @@ local EXTMARK_CHORD_LEGEND = 99
 local M = {}
 
 local staff = require("tablature.staff")
+local state = require("tablature.state")
+local config = require("tablature.config")
 
 local ns = vim.api.nvim_create_namespace("tablature")
 M.ns = ns
@@ -64,12 +66,8 @@ local function build_legend_lines(mappings, strip_prefix)
 	end
 	local lines = {}
 	for i = 1, #parts, 4 do
-		local chunk = { parts[i], parts[i + 1], parts[i + 2], parts[i + 3] }
-		local j = #chunk
-		while chunk[j] == nil do
-			j = j - 1
-		end
-		lines[#lines + 1] = "  " .. table.concat(chunk, "  ", 1, j)
+		local count = math.min(4, #parts - i + 1)
+		lines[#lines + 1] = "  " .. table.concat(parts, "  ", i, i + count - 1)
 	end
 	return lines
 end
@@ -79,10 +77,8 @@ end
 ---@param bufnr integer
 ---@param staff_top integer  0-indexed row of the top staff line
 function M.show_tab_legend(bufnr, staff_top)
-	local state = require("tablature.state")
 	local num_strings = #state.tuning.strings
 	local bottom_row = staff_top + num_strings - 1
-	local config = require("tablature.config")
 	local legend_lines = build_legend_lines(config.options.tabmode_keys, "Tab mode: ")
 	local virt_lines = {}
 	for _, line in ipairs(legend_lines) do
@@ -105,7 +101,6 @@ end
 ---@param fret_offset integer
 ---@param keymaps {key: string, desc: string}[]  chord mode key list
 function M.show_chord_legend(chord_ns, bufnr, staff_top, shape_name, fret_offset, keymaps)
-	local state = require("tablature.state")
 	local num_strings = #state.tuning.strings
 	local bottom_row = staff_top + num_strings - 1
 	local header = string.format("  %s  fret: +%d", shape_name, fret_offset)
@@ -127,7 +122,6 @@ end
 ---@param col integer         0-indexed byte column of beat start
 ---@param divisions integer   width of the beat cell
 function M.highlight_beat_column(bufnr, staff_top, col, divisions)
-	local state = require("tablature.state")
 	local num_strings = #state.tuning.strings
 
 	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
