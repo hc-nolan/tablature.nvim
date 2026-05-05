@@ -321,6 +321,7 @@ function M.enter()
 		hl.highlight_beat_column(bufnr, top, staff.buf_position_to_col(bufnr, top, measure_start), measure_beats * 3)
 		hl.show_mode_indicator(bufnr, top, pos)
 	end
+	hl.show_tab_legend(bufnr, top)
 
 	-- Auto-exit if cursor leaves the buffer
 	local aug = vim.api.nvim_create_augroup("TablatureModeExit_" .. bufnr, { clear = true })
@@ -379,6 +380,7 @@ local chord_mode_shapes = {} -- merged {[name]=shape} for current session
 local chord_mode_shape_names = {} -- sorted keys of chord_mode_shapes
 local chord_mode_shape_idx = 1 -- index into chord_mode_shape_names
 local chord_mode_offset = 0 -- root fret offset applied to all numeric values
+local chord_mode_keylist = {} -- {key, desc} list for legend rendering
 
 --- Apply the current root offset to a shape, producing an absolute voicing.
 --- "x" entries are passed through unchanged.
@@ -418,15 +420,7 @@ local function draw_chord_preview(bufnr)
 			virt_text_pos = "overlay",
 		})
 	end
-	local indicator = (" %s  fret: %d  <Tab> shape  +/- fret  <CR> insert  C pick  <Esc>/<q> exit"):format(
-		shape_name,
-		chord_mode_offset
-	)
-	local bottom_row = ctx.staff_top + num_strings - 1
-	vim.api.nvim_buf_set_extmark(bufnr, CHORD_PREVIEW_NS, bottom_row, 0, {
-		virt_lines = { { { indicator, "Comment" } } },
-		virt_lines_above = false,
-	})
+	hl.show_chord_legend(CHORD_PREVIEW_NS, bufnr, ctx.staff_top, shape_name, chord_mode_offset, chord_mode_keylist)
 end
 
 --- Save an existing buffer-local keymap (if any) then install a chord-mode override.
@@ -437,6 +431,7 @@ local function set_chord_keymap(bufnr, key, callback, desc)
 	end
 	vim.keymap.set("n", key, callback, { buffer = bufnr, nowait = true, desc = desc })
 	CHORD_MODE_KEYS[#CHORD_MODE_KEYS + 1] = key
+	chord_mode_keylist[#chord_mode_keylist + 1] = { key = key, desc = desc }
 end
 
 --- Exit chord mode, restoring the tab-mode keymaps that chord mode shadowed.
@@ -469,10 +464,16 @@ exit_chord_mode = function()
 
 	CHORD_MODE_KEYS = {}
 	saved_chord_keymaps = {}
+	chord_mode_keylist = {}
 	chord_mode_shapes = {}
 	chord_mode_shape_names = {}
 	chord_mode_shape_idx = 1
 	chord_mode_offset = 0
+
+	-- Restore the tab mode legend
+	if state.bufnr and state.staff_top and vim.api.nvim_buf_is_valid(state.bufnr) then
+		hl.show_tab_legend(state.bufnr, state.staff_top)
+	end
 end
 
 --- Enter chord mode. Tab mode must already be active.
@@ -491,9 +492,13 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	chord_mode_active = true
 	CHORD_MODE_KEYS = {}
 	saved_chord_keymaps = {}
+	chord_mode_keylist = {}
 	chord_mode_shapes = shapes
 	chord_mode_shape_names = names
 	chord_mode_offset = 0
+
+	-- Hide the tab legend while chord mode shows its own
+	hl.clear_tab_legend(bufnr)
 
 	-- Find the index of the initially selected shape
 	chord_mode_shape_idx = 1

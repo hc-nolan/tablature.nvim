@@ -7,6 +7,8 @@ local staff = require("tablature.staff")
 local ns = vim.api.nvim_create_namespace("tablature")
 M.ns = ns
 
+local legend_ns = vim.api.nvim_create_namespace("tablature_legend")
+
 --- Define highlight groups. Called once during setup.
 --- Links to standard groups so it respects the user's colorscheme.
 function M.init_highlights()
@@ -26,6 +28,95 @@ end
 ---@param bufnr integer
 function M.clear(bufnr)
 	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+	vim.api.nvim_buf_clear_namespace(bufnr, legend_ns, 0, -1)
+end
+
+--- Clear only the tab mode legend virtual text.
+---@param bufnr integer
+function M.clear_tab_legend(bufnr)
+	vim.api.nvim_buf_clear_namespace(bufnr, legend_ns, 0, -1)
+end
+
+--- Build formatted legend lines from a list of {key, desc} mappings.
+--- Keys sharing the same description are grouped: "[k1/k2: Desc]", 4 per line.
+--- An optional strip_prefix string is removed from the start of each desc.
+---@param mappings {key: string, desc: string}[]
+---@param strip_prefix string|nil
+---@return string[]
+local function build_legend_lines(mappings, strip_prefix)
+	local order = {}
+	local groups = {}
+	for _, mapping in ipairs(mappings) do
+		local desc = strip_prefix and mapping.desc:gsub("^" .. strip_prefix, "") or mapping.desc
+		desc = desc:sub(1, 1):upper() .. desc:sub(2)
+		if not groups[desc] then
+			groups[desc] = {}
+			order[#order + 1] = desc
+		end
+		groups[desc][#groups[desc] + 1] = mapping.key
+	end
+	local parts = {}
+	for _, desc in ipairs(order) do
+		local keys = table.concat(groups[desc], "/")
+		parts[#parts + 1] = "[" .. keys .. ": " .. desc .. "]"
+	end
+	local lines = {}
+	for i = 1, #parts, 4 do
+		local chunk = { parts[i], parts[i + 1], parts[i + 2], parts[i + 3] }
+		local j = #chunk
+		while chunk[j] == nil do
+			j = j - 1
+		end
+		lines[#lines + 1] = "  " .. table.concat(chunk, "  ", 1, j)
+	end
+	return lines
+end
+
+--- Show a legend below the staff listing available tab mode keybinds,
+--- built dynamically from config.tabmode_keys.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of the top staff line
+function M.show_tab_legend(bufnr, staff_top)
+	local state = require("tablature.state")
+	local num_strings = #state.tuning.strings
+	local bottom_row = staff_top + num_strings - 1
+	local config = require("tablature.config")
+	local legend_lines = build_legend_lines(config.options.tabmode_keys, "Tab mode: ")
+	local virt_lines = {}
+	for _, line in ipairs(legend_lines) do
+		virt_lines[#virt_lines + 1] = { { line, "Comment" } }
+	end
+	vim.api.nvim_buf_set_extmark(bufnr, legend_ns, bottom_row, 0, {
+		virt_lines = virt_lines,
+		virt_lines_above = false,
+		id = 1,
+	})
+end
+
+--- Show the chord mode legend below the staff.
+--- Renders a header line with the shape name and fret offset, followed by
+--- key hint lines formatted as "[key: Desc]", 4 per line.
+---@param chord_ns integer       extmark namespace owned by chord mode
+---@param bufnr integer
+---@param staff_top integer
+---@param shape_name string
+---@param fret_offset integer
+---@param keymaps {key: string, desc: string}[]  chord mode key list
+function M.show_chord_legend(chord_ns, bufnr, staff_top, shape_name, fret_offset, keymaps)
+	local state = require("tablature.state")
+	local num_strings = #state.tuning.strings
+	local bottom_row = staff_top + num_strings - 1
+	local header = string.format("  %s  fret: +%d", shape_name, fret_offset)
+	local legend_lines = build_legend_lines(keymaps, "Chord mode: ")
+	local virt_lines = { { { header, "TablatureMode" } } }
+	for _, line in ipairs(legend_lines) do
+		virt_lines[#virt_lines + 1] = { { line, "Comment" } }
+	end
+	vim.api.nvim_buf_set_extmark(bufnr, chord_ns, bottom_row, 0, {
+		virt_lines = virt_lines,
+		virt_lines_above = false,
+		id = 99,
+	})
 end
 
 --- Highlight the current beat column across all 6 staff lines.
@@ -37,7 +128,7 @@ function M.highlight_beat_column(bufnr, staff_top, col, divisions)
 	local state = require("tablature.state")
 	local num_strings = #state.tuning.strings
 
-	M.clear(bufnr)
+	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 
 	for i = 0, num_strings - 1 do
 		local row = staff_top + i

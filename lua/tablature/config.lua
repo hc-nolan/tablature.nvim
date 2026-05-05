@@ -201,7 +201,7 @@ M.defaults = {
 			desc = "Tab mode: exit tab mode",
 		},
 		{
-			key = "<leader>tt",
+			key = "T",
 			desc = "Tab mode: change tuning",
 			func = function()
 				require("tablature.mode").pick_tuning()
@@ -215,7 +215,7 @@ M.defaults = {
 			end,
 		},
 		{
-			key = "<leader>td",
+			key = "B",
 			desc = "Tab mode: set measure beats",
 			func = function()
 				require("tablature.mode").set_beats()
