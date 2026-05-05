@@ -5,8 +5,8 @@ local state = require("tablature.state")
 local staff = require("tablature.staff")
 
 -- 6-string standard tuning, label_width = 1
--- beats_per_measure = 4, divisions = 2 → each beat is |------
--- position_to_col for {measure=0, beat=0, sub=0} → label_width + 1 (past the opening |)
+-- beats = 2 → each measure is |------
+-- position_to_col for {measure=0, beat=0} → label_width + 1 (past the opening |)
 -- col = 1 + 1 = 2  (0-indexed: label "e" at 0, "|" at 1, first content at 2)
 
 before_each(function()
@@ -15,7 +15,7 @@ before_each(function()
 end)
 
 -- Build a minimal 6-string staff at staff_top=0 with one measure.
--- Line format: <label>|<beat*divisions*3>|  e.g. "e|------|------| ..."
+-- Line format: <label>|<beats*3 fillers>|  e.g. "e|------| ..."
 local function make_staff()
 	local cfg = config.options
 	local strings_display = {} -- high→low for display (reverse of storage)
@@ -25,17 +25,14 @@ local function make_staff()
 	end
 	local lines = {}
 	for _, lbl in ipairs(strings_display) do
-		local content = "|"
-		for _ = 1, cfg.beats_per_measure do
-			content = content .. string.rep(cfg.filler, cfg.divisions * 3) .. "|"
-		end
+		local content = "|" .. string.rep(cfg.filler, cfg.beats * 3) .. "|"
 		lines[#lines + 1] = lbl .. content
 	end
 	return make_buffer(lines)
 end
 
-local pos0 = { measure = 0, beat = 0, sub = 0 } -- first playable column
-local pos1 = { measure = 0, beat = 0, sub = 1 } -- second sub-division
+local pos0 = { measure = 0, beat = 0 } -- first playable column
+local pos1 = { measure = 0, beat = 1 } -- second beat slot
 
 describe("staff.write_char", function()
 	it("writes a single digit into the correct column on the correct string", function()
@@ -171,15 +168,15 @@ describe("staff.write_chord", function()
 		assert.are.equal("12", lines[1]:sub(3, 4))
 	end)
 
-	it("writes at the correct position when sub > 0", function()
+	it("writes at the correct position when beat > 0", function()
 		local voicing = { "5", "5", "5", "5", "5", "5" }
 		local bufnr = make_staff()
 		staff.write_chord(bufnr, 0, pos1, voicing)
 		local lines = buf_lines(bufnr)
-		-- pos1 = sub=1 → col = label_width + 1 + 1*3 = 1+1+3 = 5 (0-indexed) → sub(6,6) in 1-indexed
-		-- position_to_col({measure=0,beat=0,sub=1}): label_width + 1(sep) + sub*3 = 1+1+3 = 5
+		-- pos1 = beat=1 → col = label_width + 1 + 1*3 = 1+1+3 = 5 (0-indexed) → sub(6,6) in 1-indexed
+		-- position_to_col({measure=0,beat=1}): label_width + 1(sep) + beat*3 = 1+1+3 = 5
 		assert.are.equal("5", lines[1]:sub(6, 6))
-		-- sub=0 position should be untouched (still filler)
+		-- beat=0 position should be untouched (still filler)
 		assert.are.equal("-", lines[1]:sub(3, 3))
 	end)
 end)

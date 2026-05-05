@@ -2,6 +2,8 @@
 
 local M = {}
 
+local staff = require("tablature.staff")
+
 local ns = vim.api.nvim_create_namespace("tablature")
 M.ns = ns
 
@@ -57,7 +59,8 @@ function M.show_mode_indicator(bufnr, staff_top, pos)
 	local virt_row = math.max(0, staff_top - 1)
 	local text = "-- TAB MODE --"
 	if pos then
-		text = string.format("-- TAB -- m:%d b:%d c:%d", pos.measure + 1, pos.beat + 1, pos.sub + 1)
+		local total_beats = staff.get_measure_beats(bufnr, staff_top, pos.measure)
+		text = string.format("-- TAB -- m:%d b:%d/%d", pos.measure + 1, pos.beat + 1, total_beats)
 	end
 
 	vim.api.nvim_buf_set_extmark(bufnr, ns, virt_row, 0, {

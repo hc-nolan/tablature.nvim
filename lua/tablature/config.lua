@@ -27,8 +27,7 @@ local M = {}
 ---@class tablature.UserConfig
 ---@field default_mappings boolean  Whether or not to register the default keymaps
 ---@field tabmode_keys table<tablature.KeyMap>
----@field divisions integer  How many columns per beat (4 = quarter notes, 8 = eighths, etc.)
----@field beats_per_measure integer  Number of beats per measure
+---@field beats integer  How many beat slots per measure (e.g. 4 = quarter-note resolution, 8 = eighth-note)
 ---@field default_measures integer  Number of measures to insert when creating a new staff block
 ---@field tunings tablature.Tuning[]  Any number of tunings to use when generating staves
 ---@field chords tablature.ChordsConfig  Per-tuning chord shape libraries
@@ -37,9 +36,8 @@ local M = {}
 
 M.defaults = {
 	default_mappings = true,
-	divisions = 4,
-	beats_per_measure = 4,
-	default_measures = 2,
+	beats = 4,
+	default_measures = 8,
 	tunings = {
 		{
 			name = "Standard",
@@ -135,16 +133,16 @@ M.defaults = {
 		{
 			key = "H",
 			func = function()
-				require("tablature.mode").move_previous_beat()
+				require("tablature.mode").move_previous_measure()
 			end,
-			desc = "Tab mode: move to previous beat",
+			desc = "Tab mode: move to previous measure",
 		},
 		{
 			key = "L",
 			func = function()
-				require("tablature.mode").move_next_beat()
+				require("tablature.mode").move_next_measure()
 			end,
-			desc = "Tab mode: move to next beat",
+			desc = "Tab mode: move to next measure",
 		},
 		{
 			key = "}",
@@ -218,9 +216,9 @@ M.defaults = {
 		},
 		{
 			key = "<leader>td",
-			desc = "Tab mode: set measure divisions",
+			desc = "Tab mode: set measure beats",
 			func = function()
-				require("tablature.mode").set_divisions()
+				require("tablature.mode").set_beats()
 			end,
 		},
 	},

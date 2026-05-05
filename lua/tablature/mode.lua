@@ -44,38 +44,24 @@ end
 --- Move the cursor to a given position within the staff.
 --- Clamps to valid range.
 ---@param ctx table  current context from get_cursor_context()
----@param new_pos {measure: integer, beat: integer, sub: integer}
+---@param new_pos {measure: integer, beat: integer}
 ---@param new_string_idx integer|nil  if nil, keep current string
 local function move_to(ctx, new_pos, new_string_idx)
 	local cfg = config.options
-	local bpm = cfg.beats_per_measure
 	local default_measures = cfg.default_measures
 	local num_strings = #state.tuning.strings
 
-	-- Clamp sub to the actual division count of the target measure
-	local div = staff.get_measure_divisions(state.bufnr, state.staff_top, new_pos.measure)
-	new_pos.sub = math.max(0, math.min(div - 1, new_pos.sub))
+	-- Clamp beat to the actual beat count of the target measure
+	local beats = staff.get_measure_beats(state.bufnr, state.staff_top, new_pos.measure)
+	new_pos.beat = math.max(0, math.min(beats - 1, new_pos.beat))
 
-	-- Handle beat overflow/underflow → carry into measure
-	if new_pos.beat >= bpm then
-		new_pos.measure = new_pos.measure + math.floor(new_pos.beat / bpm)
-		new_pos.beat = new_pos.beat % bpm
-	elseif new_pos.beat < 0 then
-		local underflow = -new_pos.beat
-		new_pos.measure = new_pos.measure - math.ceil(underflow / bpm)
-		new_pos.beat = (bpm - (underflow % bpm)) % bpm
-	end
-
-	-- Clamp measure — if it was out of bounds, pin to the boundary position
+	-- Clamp measure — if it was out of bounds, stay put
 	local clamped_measure = math.max(0, math.min(default_measures - 1, new_pos.measure))
 	if clamped_measure ~= new_pos.measure then
-		-- Would have gone past the edge — stay put
 		new_pos.measure = ctx.pos.measure
 		new_pos.beat = ctx.pos.beat
-		new_pos.sub = ctx.pos.sub
 	else
 		new_pos.measure = clamped_measure
-		new_pos.beat = math.max(0, math.min(bpm - 1, new_pos.beat))
 	end
 
 	-- Clamp string
@@ -87,9 +73,10 @@ local function move_to(ctx, new_pos, new_string_idx)
 
 	vim.api.nvim_win_set_cursor(0, { new_row, new_col })
 
-	-- Update highlights
-	local beat_start_pos = { measure = new_pos.measure, beat = new_pos.beat, sub = 0 }
-	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.buf_position_to_col(state.bufnr, state.staff_top, beat_start_pos), div * 3)
+	-- Update highlights: highlight full measure width
+	local measure_start_pos = { measure = new_pos.measure, beat = 0 }
+	local measure_beats = staff.get_measure_beats(state.bufnr, state.staff_top, new_pos.measure)
+	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.buf_position_to_col(state.bufnr, state.staff_top, measure_start_pos), measure_beats * 3)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
 
@@ -161,20 +148,15 @@ function M.move_left()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = p.sub - 1
-	if p.sub < 0 then
-		-- Wrapping into the previous beat; get that beat's measure's divisions
-		local prev_beat = p.beat - 1
-		local prev_measure = p.measure
-		if prev_beat < 0 then
-			prev_measure = prev_measure - 1
-			prev_beat = config.options.beats_per_measure - 1
-		end
-		local prev_div = prev_measure >= 0
-			and staff.get_measure_divisions(state.bufnr, state.staff_top, prev_measure)
-			or config.options.divisions
-		p.sub = prev_div - 1
-		p.beat = p.beat - 1
+	p.beat = p.beat - 1
+	if p.beat < 0 then
+		-- Wrap into the last beat of the previous measure
+		local prev_measure = p.measure - 1
+		local prev_beats = prev_measure >= 0
+			and staff.get_measure_beats(state.bufnr, state.staff_top, prev_measure)
+			or config.options.beats
+		p.beat = prev_beats - 1
+		p.measure = p.measure - 1
 	end
 	move_to(ctx, p)
 	state.pending_digit = false
@@ -186,36 +168,12 @@ function M.move_right()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	local cur_div = staff.get_measure_divisions(state.bufnr, state.staff_top, p.measure)
-	p.sub = p.sub + 1
-	if p.sub >= cur_div then
-		p.sub = 0
-		p.beat = p.beat + 1
-	end
-	move_to(ctx, p)
-	state.pending_digit = false
-end
-
-function M.move_previous_beat()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
-	p.beat = p.beat - 1
-	move_to(ctx, p)
-	state.pending_digit = false
-end
-
-function M.move_next_beat()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
+	local cur_beats = staff.get_measure_beats(state.bufnr, state.staff_top, p.measure)
 	p.beat = p.beat + 1
+	if p.beat >= cur_beats then
+		p.beat = 0
+		p.measure = p.measure + 1
+	end
 	move_to(ctx, p)
 	state.pending_digit = false
 end
@@ -226,7 +184,6 @@ function M.move_previous_measure()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
 	p.beat = 0
 	p.measure = p.measure - 1
 	move_to(ctx, p)
@@ -239,7 +196,6 @@ function M.move_next_measure()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
 	p.beat = 0
 	p.measure = p.measure + 1
 	move_to(ctx, p)
@@ -360,9 +316,9 @@ function M.enter()
 	local col = cursor[2]
 	local pos = staff.buf_col_to_position(bufnr, top, col)
 	if pos then
-		local beat_start = { measure = pos.measure, beat = pos.beat, sub = 0 }
-		local div = staff.get_measure_divisions(bufnr, top, pos.measure)
-		hl.highlight_beat_column(bufnr, top, staff.buf_position_to_col(bufnr, top, beat_start), div * 3)
+		local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
+		local measure_start = { measure = pos.measure, beat = 0 }
+		hl.highlight_beat_column(bufnr, top, staff.buf_position_to_col(bufnr, top, measure_start), measure_beats * 3)
 		hl.show_mode_indicator(bufnr, top, pos)
 	end
 
@@ -602,8 +558,8 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 		{ "<Left>", M.move_left },
 		{ "l", M.move_right },
 		{ "<Right>", M.move_right },
-		{ "H", M.move_previous_beat },
-		{ "L", M.move_next_beat },
+		{ "H", M.move_previous_measure },
+		{ "L", M.move_next_measure },
 		{ "{", M.move_previous_measure },
 		{ "}", M.move_next_measure },
 	}
@@ -669,9 +625,8 @@ function M.insert_chord()
 end
 
 --- Open a tuning picker. Safe to call from both normal mode and tab mode.
---- When called from tab mode, restores cursor and re-enters after selection.
---- Prompt the user for a new division count and reformat the current measure.
-function M.set_divisions()
+--- Prompt the user for a new beat count and reformat the current measure.
+function M.set_beats()
 	local ctx = get_cursor_context()
 	if not ctx then
 		return
@@ -679,24 +634,25 @@ function M.set_divisions()
 	local bufnr = state.bufnr
 	local staff_top = state.staff_top
 	local measure_idx = ctx.pos.measure
-	local current_div = staff.get_measure_divisions(bufnr, staff_top, measure_idx)
+	local current_beats = staff.get_measure_beats(bufnr, staff_top, measure_idx)
 
 	vim.ui.input({
-		prompt = "Divisions for measure " .. (measure_idx + 1) .. " (current: " .. current_div .. "): ",
-		default = tostring(current_div),
+		prompt = "Beats for measure " .. (measure_idx + 1) .. " (current: " .. current_beats .. "): ",
+		default = tostring(current_beats),
 	}, function(input)
 		if not input or input == "" then
 			return
 		end
-		local new_div = tonumber(input)
-		if not new_div or new_div < 1 or math.floor(new_div) ~= new_div then
-			vim.notify("tablature: divisions must be a positive integer", vim.log.levels.WARN)
+		local new_beats = tonumber(input)
+		if not new_beats or new_beats < 1 or math.floor(new_beats) ~= new_beats then
+			vim.notify("tablature: beats must be a positive integer", vim.log.levels.WARN)
 			return
 		end
 		vim.schedule(function()
-			staff.set_measure_divisions(bufnr, staff_top, measure_idx, new_div)
-			-- Move cursor to start of measure so position is still valid
-			local new_pos = { measure = measure_idx, beat = ctx.pos.beat, sub = 0 }
+			staff.set_measure_beats(bufnr, staff_top, measure_idx, new_beats)
+			-- Clamp cursor beat in case measure shrank
+			local clamped_beat = math.min(ctx.pos.beat, new_beats - 1)
+			local new_pos = { measure = measure_idx, beat = clamped_beat }
 			local new_col = staff.buf_position_to_col(bufnr, staff_top, new_pos)
 			vim.api.nvim_win_set_cursor(0, { ctx.staff_top + ctx.string_idx + 1, new_col })
 		end)
