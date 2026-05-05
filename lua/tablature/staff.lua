@@ -1,70 +1,64 @@
 -- Handles generating, parsing, and mutating tab staff blocks in the buffer.
 --
--- A staff block looks like this (4 beats, 2 divisions each):
+-- A staff block looks like this (4 measures, 4 beats each):
 --
---   e|------|------|------|------|
---   B|------|------|------|------|
---   G|------|------|------|------|
---   D|------|------|------|------|
---   A|------|------|------|------|
---   E|------|------|------|------|
+--   e|------------|------------|------------|------------|
+--   B|------------|------------|------------|------------|
+--   G|------------|------------|------------|------------|
+--   D|------------|------------|------------|------------|
+--   A|------------|------------|------------|------------|
+--   E|------------|------------|------------|------------|
 --
 -- Column layout per line:
---   <string_label> | <beat_sep> <div*(filler*3)> ... <beat_sep> ... |
+--   <string_label><measure_sep><beats*3 filler chars><measure_sep>...
 --
--- Each division is 3 chars: content + overflow + separator filler
+-- Each beat slot is 3 chars: content + overflow + trailing filler
 -- e.g. single-digit fret 5: `5--`  double-digit fret 12: `12-`
--- Each beat is:  beat_sep + (3 * divisions) filler chars
--- Final char  :  beat_sep (closing bar)
 
 local config = require("tablature.config")
 local state = require("tablature.state")
 
 ---@class tablature.staff.position
----@field measure integer
----@field beat integer
----@field sub integer
----
+---@field measure integer  0-indexed measure number
+---@field beat integer     0-indexed beat slot within the measure
 
 local M = {}
 
 --- Build a single staff line string for one string.
 ---@param string_label string  Character used to represent the string, e.g. `e`, `B`
 ---@param measures integer  How many measures to build
----@param beats_per_measure integer  Beats per measure
----@param divisions integer  How many columns per beat, e.g. `4` for quarter notes
+---@param beats integer  How many beat slots per measure
 ---@param filler string  Character used to fill empty columns
 ---@param measure_sep string  Character used to separate measures
 ---@param label_length integer  Number of columns the label should occupy. Padded if string_label is not this length.
 ---@return string
-local function build_line(string_label, measures, beats_per_measure, divisions, filler, measure_sep, label_length)
+local function build_line(string_label, measures, beats, filler, measure_sep, label_length)
 	local padded = string_label .. string.rep(" ", label_length - #string_label)
 
 	local parts = { padded, measure_sep }
-	for _ = 1, measures * beats_per_measure do
-		-- 3 filler chars per division: content + overflow + separator
-		parts[#parts + 1] = string.rep(filler, divisions * 3)
+	for _ = 1, measures do
+		-- 3 filler chars per beat slot: content + overflow + trailing filler
+		parts[#parts + 1] = string.rep(filler, beats * 3)
 		parts[#parts + 1] = measure_sep
 	end
 	return table.concat(parts)
 end
 
 --- Generate a full staff block as a list of lines.
----@param opts table|nil  Override config options (measures, beats_per_measure, divisions)
+---@param opts table|nil  Override config options (measures, beats)
 ---@return string[]
 function M.generate(opts)
 	local cfg = config.options
 	local measures = (opts and opts.measures) or cfg.default_measures
-	local bpm = (opts and opts.beats_per_measure) or cfg.beats_per_measure
-	local div = (opts and opts.divisions) or cfg.divisions
+	local beats = (opts and opts.beats) or cfg.beats
 	local filler = cfg.filler
-	local beat_sep = cfg.measure_sep
+	local measure_sep = cfg.measure_sep
 	local label_length = state.label_width
 
 	local strings = state.tuning.strings
 	local lines = {}
 	for i = #strings, 1, -1 do
-		lines[#lines + 1] = build_line(strings[i], measures, bpm, div, filler, beat_sep, label_length)
+		lines[#lines + 1] = build_line(strings[i], measures, beats, filler, measure_sep, label_length)
 	end
 	return lines
 end
@@ -163,18 +157,17 @@ function M.find_staff_top(bufnr, row)
 	return top
 end
 
---- Given a cursor column, compute which beat and sub-column the cursor is in.
---- Returns { measure, beat, sub } all 0-indexed, or nil if not in a grid cell.
+--- Given a cursor column, compute which measure and beat slot the cursor is in.
+--- Returns { measure, beat } both 0-indexed, or nil if not in a grid cell.
+--- Assumes all measures have the same beat count (cfg.beats). For variable-beat
+--- staffs use buf_col_to_position instead.
 ---@param col integer   0-indexed column
 ---@return tablature.staff.position|nil
 function M.col_to_position(col)
 	local cfg = config.options
-	local div = cfg.divisions
-	local bpm = cfg.beats_per_measure
+	local beats = cfg.beats
 	local sep_width = cfg.measure_sep:len()
-
 	local label_width = state.label_width
-
 	local content_start = label_width + sep_width
 
 	if col < content_start then
@@ -182,40 +175,36 @@ function M.col_to_position(col)
 	end
 
 	local offset = col - content_start
-	local cell_width = div * 3 + sep_width -- each beat: (div * 3) filler chars + trailing sep
+	local cell_width = beats * 3 + sep_width -- each measure: beats*3 filler chars + trailing sep
 
-	local total_beat = math.floor(offset / cell_width)
-	if total_beat > cfg.default_measures * bpm then
-		-- Cursor out of bounds
+	local measure = math.floor(offset / cell_width)
+	if measure >= cfg.default_measures then
 		return nil
 	end
 	local char_pos = offset % cell_width
-	local sub_beat = math.floor(char_pos / 3)
 
-	-- If cursor is on or past the beat separator, clamp or bail
-	if char_pos >= div * 3 then
+	-- If cursor is on the measure separator, bail
+	if char_pos >= beats * 3 then
 		return nil
 	end
 
-	local measure = math.floor(total_beat / bpm)
-	local beat = total_beat % bpm
-
-	return { measure = measure, beat = beat, sub = sub_beat }
+	local beat = math.floor(char_pos / 3)
+	return { measure = measure, beat = beat }
 end
 
---- Given a position {measure, beat, sub}, return the 0-indexed column.
+--- Given a position {measure, beat}, return the 0-indexed column.
+--- Assumes all measures have the same beat count (cfg.beats). For variable-beat
+--- staffs use buf_position_to_col instead.
 ---@param pos tablature.staff.position
 ---@return integer
 function M.position_to_col(pos)
 	local cfg = config.options
-	local div = cfg.divisions
-	local bpm = cfg.beats_per_measure
+	local beats = cfg.beats
 	local label_width = state.label_width
 	local sep_width = cfg.measure_sep:len()
-	local cell_width = div * 3 + sep_width
+	local cell_width = beats * 3 + sep_width
 
-	local total_beat = pos.measure * bpm + pos.beat
-	return label_width + sep_width + total_beat * cell_width + pos.sub * 3
+	return label_width + sep_width + pos.measure * cell_width + pos.beat * 3
 end
 
 --- Write a character at (string_idx 0-indexed from top, measure, beat, sub)
@@ -290,6 +279,172 @@ function M.write_chord(bufnr, staff_top, pos, voicing)
 			elseif n then
 				M.write_char(bufnr, staff_top, string_idx, pos, tostring(n))
 			end
+		end
+	end
+end
+
+--- Scan the top staff row to get the beat count for a specific measure.
+--- Derives the beat count from the actual buffer text, so it is correct even
+--- when individual measures have been reformatted to different beat counts.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param measure_idx integer  0-indexed
+---@return integer
+function M.get_measure_beats(bufnr, staff_top, measure_idx)
+	local cfg = config.options
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return cfg.beats
+	end
+
+	-- Skip label+sep, then skip measure_idx measures
+	local pos = label_width + sep_width + 1 -- 1-indexed Lua string position
+	for _ = 1, measure_idx do
+		local sp = line:find(sep, pos, true)
+		if not sp then
+			return cfg.beats
+		end
+		pos = sp + sep_width
+	end
+
+	-- Target measure starts at pos; find its trailing sep
+	local sp = line:find(sep, pos, true)
+	if not sp then
+		return cfg.beats
+	end
+	return math.floor((sp - pos) / 3)
+end
+
+--- Convert a position to a 0-indexed column by scanning the actual buffer content.
+--- Unlike position_to_col, this handles measures with different beat counts.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param pos tablature.staff.position
+---@return integer
+function M.buf_position_to_col(bufnr, staff_top, pos)
+	local cfg = config.options
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return M.position_to_col(pos)
+	end
+
+	-- Walk pos.measure measures to find the start of the target measure
+	local scan = label_width + sep_width + 1 -- 1-indexed
+	for _ = 1, pos.measure do
+		local sp = line:find(sep, scan, true)
+		if not sp then
+			return M.position_to_col(pos)
+		end
+		scan = sp + sep_width
+	end
+
+	-- scan is the 1-indexed start of the target measure; add beat offset
+	return (scan - 1) + pos.beat * 3
+end
+
+--- Convert a 0-indexed column to a position by scanning the actual buffer content.
+--- Unlike col_to_position, this handles measures with different beat counts.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param col integer  0-indexed column
+---@return tablature.staff.position|nil
+function M.buf_col_to_position(bufnr, staff_top, col)
+	local cfg = config.options
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return M.col_to_position(col)
+	end
+
+	local content_start = label_width + sep_width -- 0-indexed
+	if col < content_start then
+		return nil
+	end
+
+	local scan = content_start + 1 -- 1-indexed
+	local measure = 0
+
+	while scan <= #line do
+		local sp = line:find(sep, scan, true)
+		if not sp then
+			break
+		end
+
+		local measure_col_start = scan - 1 -- 0-indexed
+		local measure_content_len = sp - scan -- = beats * 3
+
+		if col >= measure_col_start and col < measure_col_start + measure_content_len then
+			local beat = math.floor((col - measure_col_start) / 3)
+			return { measure = measure, beat = beat }
+		end
+
+		-- col is on the sep itself → not a valid cell
+		if col == measure_col_start + measure_content_len then
+			return nil
+		end
+
+		measure = measure + 1
+		scan = sp + sep_width
+	end
+
+	return nil
+end
+
+--- Reformat a single measure to use a new beat count.
+--- Inserts filler beat slots when expanding, trims trailing slots when shrinking.
+--- All string rows in the staff are updated.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param measure_idx integer  0-indexed
+---@param new_beats integer
+function M.set_measure_beats(bufnr, staff_top, measure_idx, new_beats)
+	local cfg = config.options
+	local sep = cfg.measure_sep
+	local sep_width = #sep
+	local label_width = state.label_width
+	local filler = cfg.filler
+	local num_strings = #state.tuning.strings
+
+	for s = 0, num_strings - 1 do
+		local row = staff_top + s
+		local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+		if line then
+			-- Walk to the start of the target measure
+			local pos = label_width + sep_width + 1 -- 1-indexed
+			for _ = 1, measure_idx do
+				local sp = line:find(sep, pos, true)
+				pos = sp + sep_width
+			end
+			local measure_start = pos
+
+			-- Find the measure's trailing sep
+			local sp = line:find(sep, measure_start, true)
+			local measure_content = line:sub(measure_start, sp - 1)
+			local old_beats = math.floor(#measure_content / 3)
+
+			local new_content
+			if new_beats > old_beats then
+				new_content = measure_content .. string.rep(filler, (new_beats - old_beats) * 3)
+			elseif new_beats < old_beats then
+				new_content = measure_content:sub(1, new_beats * 3)
+			else
+				new_content = measure_content
+			end
+
+			local before = line:sub(1, measure_start - 1)
+			local after = line:sub(sp) -- includes the trailing sep and everything after
+			vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { before .. new_content .. after })
 		end
 	end
 end

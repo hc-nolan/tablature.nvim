@@ -33,7 +33,7 @@ local function get_cursor_context()
 	end
 
 	local string_idx = row - top -- 0-indexed from top
-	local pos = staff.col_to_position(col)
+	local pos = staff.buf_col_to_position(state.bufnr, state.staff_top, col)
 	if not pos then
 		return nil
 	end
@@ -44,38 +44,24 @@ end
 --- Move the cursor to a given position within the staff.
 --- Clamps to valid range.
 ---@param ctx table  current context from get_cursor_context()
----@param new_pos {measure: integer, beat: integer, sub: integer}
+---@param new_pos {measure: integer, beat: integer}
 ---@param new_string_idx integer|nil  if nil, keep current string
 local function move_to(ctx, new_pos, new_string_idx)
 	local cfg = config.options
-	local div = cfg.divisions
-	local bpm = cfg.beats_per_measure
 	local default_measures = cfg.default_measures
 	local num_strings = #state.tuning.strings
 
-	-- Clamp sub
-	new_pos.sub = math.max(0, math.min(div - 1, new_pos.sub))
+	-- Clamp beat to the actual beat count of the target measure
+	local beats = staff.get_measure_beats(state.bufnr, state.staff_top, new_pos.measure)
+	new_pos.beat = math.max(0, math.min(beats - 1, new_pos.beat))
 
-	-- Handle beat overflow/underflow → carry into measure
-	if new_pos.beat >= bpm then
-		new_pos.measure = new_pos.measure + math.floor(new_pos.beat / bpm)
-		new_pos.beat = new_pos.beat % bpm
-	elseif new_pos.beat < 0 then
-		local underflow = -new_pos.beat
-		new_pos.measure = new_pos.measure - math.ceil(underflow / bpm)
-		new_pos.beat = (bpm - (underflow % bpm)) % bpm
-	end
-
-	-- Clamp measure — if it was out of bounds, pin to the boundary position
+	-- Clamp measure — if it was out of bounds, stay put
 	local clamped_measure = math.max(0, math.min(default_measures - 1, new_pos.measure))
 	if clamped_measure ~= new_pos.measure then
-		-- Would have gone past the edge — stay put
 		new_pos.measure = ctx.pos.measure
 		new_pos.beat = ctx.pos.beat
-		new_pos.sub = ctx.pos.sub
 	else
 		new_pos.measure = clamped_measure
-		new_pos.beat = math.max(0, math.min(bpm - 1, new_pos.beat))
 	end
 
 	-- Clamp string
@@ -83,13 +69,14 @@ local function move_to(ctx, new_pos, new_string_idx)
 	si = math.max(0, math.min(num_strings - 1, si))
 
 	local new_row = ctx.staff_top + si + 1 -- 1-indexed for nvim_win_set_cursor
-	local new_col = staff.position_to_col(new_pos)
+	local new_col = staff.buf_position_to_col(state.bufnr, state.staff_top, new_pos)
 
 	vim.api.nvim_win_set_cursor(0, { new_row, new_col })
 
-	-- Update highlights
-	local beat_start_pos = { measure = new_pos.measure, beat = new_pos.beat, sub = 0 }
-	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.position_to_col(beat_start_pos), div * 3)
+	-- Update highlights: highlight full measure width
+	local measure_start_pos = { measure = new_pos.measure, beat = 0 }
+	local measure_beats = staff.get_measure_beats(state.bufnr, state.staff_top, new_pos.measure)
+	hl.highlight_beat_column(state.bufnr, ctx.staff_top, staff.buf_position_to_col(state.bufnr, state.staff_top, measure_start_pos), measure_beats * 3)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
 
@@ -104,7 +91,7 @@ local function write_fret(char)
 	end
 
 	-- Check if the current cell already has a digit (double-digit fret case)
-	local col = staff.position_to_col(ctx.pos)
+	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
 	local line = vim.api.nvim_buf_get_lines(
 		state.bufnr,
 		ctx.staff_top + ctx.string_idx,
@@ -161,10 +148,15 @@ function M.move_left()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = p.sub - 1
-	if p.sub < 0 then
-		p.sub = config.options.divisions - 1
-		p.beat = p.beat - 1
+	p.beat = p.beat - 1
+	if p.beat < 0 then
+		-- Wrap into the last beat of the previous measure
+		local prev_measure = p.measure - 1
+		local prev_beats = prev_measure >= 0
+			and staff.get_measure_beats(state.bufnr, state.staff_top, prev_measure)
+			or config.options.beats
+		p.beat = prev_beats - 1
+		p.measure = p.measure - 1
 	end
 	move_to(ctx, p)
 	state.pending_digit = false
@@ -176,35 +168,12 @@ function M.move_right()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = p.sub + 1
-	if p.sub >= config.options.divisions then
-		p.sub = 0
-		p.beat = p.beat + 1
-	end
-	move_to(ctx, p)
-	state.pending_digit = false
-end
-
-function M.move_previous_beat()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
-	p.beat = p.beat - 1
-	move_to(ctx, p)
-	state.pending_digit = false
-end
-
-function M.move_next_beat()
-	local ctx = get_cursor_context()
-	if not ctx then
-		return
-	end
-	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
+	local cur_beats = staff.get_measure_beats(state.bufnr, state.staff_top, p.measure)
 	p.beat = p.beat + 1
+	if p.beat >= cur_beats then
+		p.beat = 0
+		p.measure = p.measure + 1
+	end
 	move_to(ctx, p)
 	state.pending_digit = false
 end
@@ -215,7 +184,6 @@ function M.move_previous_measure()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
 	p.beat = 0
 	p.measure = p.measure - 1
 	move_to(ctx, p)
@@ -228,7 +196,6 @@ function M.move_next_measure()
 		return
 	end
 	local p = vim.deepcopy(ctx.pos)
-	p.sub = 0
 	p.beat = 0
 	p.measure = p.measure + 1
 	move_to(ctx, p)
@@ -347,12 +314,14 @@ function M.enter()
 
 	-- Initial highlight + indicator
 	local col = cursor[2]
-	local pos = staff.col_to_position(col)
+	local pos = staff.buf_col_to_position(bufnr, top, col)
 	if pos then
-		local beat_start = { measure = pos.measure, beat = pos.beat, sub = 0 }
-		hl.highlight_beat_column(bufnr, top, staff.position_to_col(beat_start), config.options.divisions * 3)
+		local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
+		local measure_start = { measure = pos.measure, beat = 0 }
+		hl.highlight_beat_column(bufnr, top, staff.buf_position_to_col(bufnr, top, measure_start), measure_beats * 3)
 		hl.show_mode_indicator(bufnr, top, pos)
 	end
+	hl.show_tab_legend(bufnr, top)
 
 	-- Auto-exit if cursor leaves the buffer
 	local aug = vim.api.nvim_create_augroup("TablatureModeExit_" .. bufnr, { clear = true })
@@ -411,6 +380,7 @@ local chord_mode_shapes = {} -- merged {[name]=shape} for current session
 local chord_mode_shape_names = {} -- sorted keys of chord_mode_shapes
 local chord_mode_shape_idx = 1 -- index into chord_mode_shape_names
 local chord_mode_offset = 0 -- root fret offset applied to all numeric values
+local chord_mode_keylist = {} -- {key, desc} list for legend rendering
 
 --- Apply the current root offset to a shape, producing an absolute voicing.
 --- "x" entries are passed through unchanged.
@@ -441,7 +411,7 @@ local function draw_chord_preview(bufnr)
 	local shape = chord_mode_shapes[shape_name]
 	local voicing = apply_offset(shape, chord_mode_offset)
 	local num_strings = #state.tuning.strings
-	local col = staff.position_to_col(ctx.pos)
+	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
 	for string_idx = 0, num_strings - 1 do
 		local v = voicing[num_strings - string_idx] or "-"
 		local row = ctx.staff_top + string_idx
@@ -450,15 +420,7 @@ local function draw_chord_preview(bufnr)
 			virt_text_pos = "overlay",
 		})
 	end
-	local indicator = (" %s  fret: %d  <Tab> shape  +/- fret  <CR> insert  C pick  <Esc>/<q> exit"):format(
-		shape_name,
-		chord_mode_offset
-	)
-	local bottom_row = ctx.staff_top + num_strings - 1
-	vim.api.nvim_buf_set_extmark(bufnr, CHORD_PREVIEW_NS, bottom_row, 0, {
-		virt_lines = { { { indicator, "Comment" } } },
-		virt_lines_above = false,
-	})
+	hl.show_chord_legend(CHORD_PREVIEW_NS, bufnr, ctx.staff_top, shape_name, chord_mode_offset, chord_mode_keylist)
 end
 
 --- Save an existing buffer-local keymap (if any) then install a chord-mode override.
@@ -469,6 +431,7 @@ local function set_chord_keymap(bufnr, key, callback, desc)
 	end
 	vim.keymap.set("n", key, callback, { buffer = bufnr, nowait = true, desc = desc })
 	CHORD_MODE_KEYS[#CHORD_MODE_KEYS + 1] = key
+	chord_mode_keylist[#chord_mode_keylist + 1] = { key = key, desc = desc }
 end
 
 --- Exit chord mode, restoring the tab-mode keymaps that chord mode shadowed.
@@ -501,10 +464,16 @@ exit_chord_mode = function()
 
 	CHORD_MODE_KEYS = {}
 	saved_chord_keymaps = {}
+	chord_mode_keylist = {}
 	chord_mode_shapes = {}
 	chord_mode_shape_names = {}
 	chord_mode_shape_idx = 1
 	chord_mode_offset = 0
+
+	-- Restore the tab mode legend
+	if state.bufnr and state.staff_top and vim.api.nvim_buf_is_valid(state.bufnr) then
+		hl.show_tab_legend(state.bufnr, state.staff_top)
+	end
 end
 
 --- Enter chord mode. Tab mode must already be active.
@@ -523,9 +492,13 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 	chord_mode_active = true
 	CHORD_MODE_KEYS = {}
 	saved_chord_keymaps = {}
+	chord_mode_keylist = {}
 	chord_mode_shapes = shapes
 	chord_mode_shape_names = names
 	chord_mode_offset = 0
+
+	-- Hide the tab legend while chord mode shows its own
+	hl.clear_tab_legend(bufnr)
 
 	-- Find the index of the initially selected shape
 	chord_mode_shape_idx = 1
@@ -590,8 +563,8 @@ local function enter_chord_mode(bufnr, initial_shape_name, shapes)
 		{ "<Left>", M.move_left },
 		{ "l", M.move_right },
 		{ "<Right>", M.move_right },
-		{ "H", M.move_previous_beat },
-		{ "L", M.move_next_beat },
+		{ "H", M.move_previous_measure },
+		{ "L", M.move_next_measure },
 		{ "{", M.move_previous_measure },
 		{ "}", M.move_next_measure },
 	}
@@ -657,7 +630,40 @@ function M.insert_chord()
 end
 
 --- Open a tuning picker. Safe to call from both normal mode and tab mode.
---- When called from tab mode, restores cursor and re-enters after selection.
+--- Prompt the user for a new beat count and reformat the current measure.
+function M.set_beats()
+	local ctx = get_cursor_context()
+	if not ctx then
+		return
+	end
+	local bufnr = state.bufnr
+	local staff_top = state.staff_top
+	local measure_idx = ctx.pos.measure
+	local current_beats = staff.get_measure_beats(bufnr, staff_top, measure_idx)
+
+	vim.ui.input({
+		prompt = "Beats for measure " .. (measure_idx + 1) .. " (current: " .. current_beats .. "): ",
+		default = tostring(current_beats),
+	}, function(input)
+		if not input or input == "" then
+			return
+		end
+		local new_beats = tonumber(input)
+		if not new_beats or new_beats < 1 or math.floor(new_beats) ~= new_beats then
+			vim.notify("tablature: beats must be a positive integer", vim.log.levels.WARN)
+			return
+		end
+		vim.schedule(function()
+			staff.set_measure_beats(bufnr, staff_top, measure_idx, new_beats)
+			-- Clamp cursor beat in case measure shrank
+			local clamped_beat = math.min(ctx.pos.beat, new_beats - 1)
+			local new_pos = { measure = measure_idx, beat = clamped_beat }
+			local new_col = staff.buf_position_to_col(bufnr, staff_top, new_pos)
+			vim.api.nvim_win_set_cursor(0, { ctx.staff_top + ctx.string_idx + 1, new_col })
+		end)
+	end)
+end
+
 function M.pick_tuning()
 	local was_active = state.active
 	local win = vim.api.nvim_get_current_win()

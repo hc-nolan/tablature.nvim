@@ -10,14 +10,14 @@ before_each(function()
 end)
 
 -- Default config:
---   strings = { "e","B","G","D","A","E" }  label_width = 1
+--   strings = { "E","A","D","G","B","e" }  label_width = 1
 --   measure_sep = "|"
---   divisions = 4, beats_per_measure = 4, default_measures = 2
+--   beats = 4, default_measures = 8
 --
 -- Expected line structure:
---   <label(1)><sep(1)> then for each beat: <div*3 fillers><sep>
---   total = 1 + 1 + measures * bpm * (div*3 + 1)
---            = 2 + 2 * 4 * 13 = 2 + 104 = 106
+--   <label(1)><sep(1)> then for each measure: <beats*3 fillers><sep>
+--   total = 1 + 1 + measures * (beats*3 + 1)
+--            = 2 + 8 * 13 = 2 + 104 = 106
 
 describe("staff.generate", function()
 	it("returns one line per string", function()
@@ -37,10 +37,10 @@ describe("staff.generate", function()
 
 	it("each line has the correct total length", function()
 		local cfg = config.options
-		-- label(1) + sep(1) + measures * bpm * (div*3 + sep_width)
+		-- label(1) + sep(1) + measures * (beats*3 + sep_width)
 		local expected_len = state.label_width
 			+ #cfg.measure_sep
-			+ cfg.default_measures * cfg.beats_per_measure * (cfg.divisions * 3 + #cfg.measure_sep)
+			+ cfg.default_measures * (cfg.beats * 3 + #cfg.measure_sep)
 		local lines = staff.generate()
 		for _, line in ipairs(lines) do
 			assert.are.equal(expected_len, #line)
@@ -62,27 +62,16 @@ describe("staff.generate", function()
 		local cfg = config.options
 		local expected_len = state.label_width
 			+ #cfg.measure_sep
-			+ 4 * cfg.beats_per_measure * (cfg.divisions * 3 + #cfg.measure_sep)
+			+ 4 * (cfg.beats * 3 + #cfg.measure_sep)
 		for _, line in ipairs(lines) do
 			assert.are.equal(expected_len, #line)
 		end
 	end)
 
-	it("respects custom beats_per_measure opt", function()
-		local lines = staff.generate({ measures = 1, beats_per_measure = 3 })
+	it("respects custom beats opt", function()
+		local lines = staff.generate({ measures = 1, beats = 3 })
 		local cfg = config.options
-		local expected_len = state.label_width + #cfg.measure_sep + 1 * 3 * (cfg.divisions * 3 + #cfg.measure_sep)
-		for _, line in ipairs(lines) do
-			assert.are.equal(expected_len, #line)
-		end
-	end)
-
-	it("respects custom divisions opt", function()
-		local lines = staff.generate({ measures = 1, divisions = 2 })
-		local cfg = config.options
-		local expected_len = state.label_width
-			+ #cfg.measure_sep
-			+ 1 * cfg.beats_per_measure * (2 * 3 + #cfg.measure_sep)
+		local expected_len = state.label_width + #cfg.measure_sep + 1 * (3 * 3 + #cfg.measure_sep)
 		for _, line in ipairs(lines) do
 			assert.are.equal(expected_len, #line)
 		end
