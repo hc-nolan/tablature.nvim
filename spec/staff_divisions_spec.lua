@@ -88,19 +88,13 @@ describe("staff.set_measure_beats", function()
 		-- Expand measure 0 from 4 to 8 beats
 		staff.set_measure_beats(bufnr, top, 0, 8)
 		-- The note should still be at the same position
-		local col = staff.buf_position_to_col(bufnr, top, pos)
+		local col = staff.position_to_col(bufnr, top, pos)
 		local line = buf_lines(bufnr)[1]
 		assert.are.equal("5", line:sub(col + 1, col + 1))
 	end)
 end)
 
-describe("staff.buf_position_to_col", function()
-	it("matches position_to_col for uniform-beat staffs", function()
-		local bufnr, top = make_staff()
-		local pos = { measure = 0, beat = 2 }
-		assert.are.equal(staff.position_to_col(pos), staff.buf_position_to_col(bufnr, top, pos))
-	end)
-
+describe("staff.position_to_col", function()
 	it("accounts for a wider measure 0 when computing measure 1 column", function()
 		local bufnr, top = make_staff()
 		staff.set_measure_beats(bufnr, top, 0, 8)
@@ -108,17 +102,17 @@ describe("staff.buf_position_to_col", function()
 		-- label(1) + sep(1) + 1 measure * (4*3+1) = 2 + 13 = 15
 		local uniform_col = staff.position_to_col({ measure = 1, beat = 0 })
 		-- With beats=8 for measure 0: col should be larger
-		local buf_col = staff.buf_position_to_col(bufnr, top, { measure = 1, beat = 0 })
+		local buf_col = staff.position_to_col(bufnr, top, { measure = 1, beat = 0 })
 		assert.is_true(buf_col > uniform_col)
 	end)
 end)
 
-describe("staff.buf_col_to_position", function()
-	it("round-trips with buf_position_to_col", function()
+describe("staff.col_to_position", function()
+	it("round-trips with position_to_col", function()
 		local bufnr, top = make_staff()
 		local pos = { measure = 1, beat = 3 }
-		local col = staff.buf_position_to_col(bufnr, top, pos)
-		local back = staff.buf_col_to_position(bufnr, top, col)
+		local col = staff.position_to_col(bufnr, top, pos)
+		local back = staff.col_to_position(bufnr, top, col)
 		assert.are.equal(pos.measure, back.measure)
 		assert.are.equal(pos.beat, back.beat)
 	end)
@@ -127,8 +121,8 @@ describe("staff.buf_col_to_position", function()
 		local bufnr, top = make_staff()
 		staff.set_measure_beats(bufnr, top, 0, 8)
 		local pos = { measure = 1, beat = 1 }
-		local col = staff.buf_position_to_col(bufnr, top, pos)
-		local back = staff.buf_col_to_position(bufnr, top, col)
+		local col = staff.position_to_col(bufnr, top, pos)
+		local back = staff.col_to_position(bufnr, top, col)
 		assert.are.equal(pos.measure, back.measure)
 		assert.are.equal(pos.beat, back.beat)
 	end)
@@ -137,6 +131,6 @@ describe("staff.buf_col_to_position", function()
 		local bufnr, top = make_staff()
 		-- The separator after the label is at column label_width (0-indexed)
 		local sep_col = state.label_width
-		assert.is_nil(staff.buf_col_to_position(bufnr, top, sep_col))
+		assert.is_nil(staff.col_to_position(bufnr, top, sep_col))
 	end)
 end)

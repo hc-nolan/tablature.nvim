@@ -38,7 +38,11 @@ local function draw_chord_preview(bufnr, ctx_fn)
 	local shape = chord_mode.shapes[shape_name]
 	local voicing = staff.apply_offset(shape, chord_mode.offset)
 	local num_strings = #state.tuning.strings
-	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
+	local col = staff.position_to_col(state.bufnr, state.staff_top, ctx.pos)
+	if not col then
+		vim.notify("Column not found", 4)
+		return
+	end
 	for string_idx = 0, num_strings - 1 do
 		local v = voicing[num_strings - string_idx] or "-"
 		local row = ctx.staff_top + string_idx
