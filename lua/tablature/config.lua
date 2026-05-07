@@ -5,6 +5,7 @@ local M = {}
 ---@field key string  The key to map
 ---@field func function  Function for the keymap to call
 ---@field desc string  Keymap description
+---@field legend boolean|nil  Whether to show this keymap in the legend (default true)
 
 --- Describes a tuning
 ---@class tablature.Tuning
@@ -108,6 +109,7 @@ M.defaults = {
 				require("tablature.mode").move_left()
 			end,
 			desc = "Tab mode: move left",
+			legend = false,
 		},
 		{
 			key = "<Left>",
@@ -115,6 +117,7 @@ M.defaults = {
 				require("tablature.mode").move_left()
 			end,
 			desc = "Tab mode: move left",
+			legend = false,
 		},
 		{
 			key = "l",
@@ -122,6 +125,7 @@ M.defaults = {
 				require("tablature.mode").move_right()
 			end,
 			desc = "Tab mode: move right",
+			legend = false,
 		},
 		{
 			key = "<Right>",
@@ -129,6 +133,7 @@ M.defaults = {
 				require("tablature.mode").move_right()
 			end,
 			desc = "Tab mode: move right",
+			legend = false,
 		},
 		{
 			key = "H",
@@ -136,6 +141,7 @@ M.defaults = {
 				require("tablature.mode").move_previous_measure()
 			end,
 			desc = "Tab mode: move to previous measure",
+			legend = false,
 		},
 		{
 			key = "L",
@@ -143,6 +149,7 @@ M.defaults = {
 				require("tablature.mode").move_next_measure()
 			end,
 			desc = "Tab mode: move to next measure",
+			legend = false,
 		},
 		{
 			key = "}",
@@ -150,6 +157,7 @@ M.defaults = {
 				require("tablature.mode").move_next_measure()
 			end,
 			desc = "Tab mode: move to next measure",
+			legend = false,
 		},
 		{
 			key = "{",
@@ -157,6 +165,7 @@ M.defaults = {
 				require("tablature.mode").move_previous_measure()
 			end,
 			desc = "Tab mode: move to previous measure",
+			legend = false,
 		},
 		{
 			key = "j",
@@ -164,6 +173,7 @@ M.defaults = {
 				require("tablature.mode").move_next_string()
 			end,
 			desc = "Tab mode: move to next string",
+			legend = false,
 		},
 		{
 			key = "k",
@@ -171,6 +181,7 @@ M.defaults = {
 				require("tablature.mode").move_previous_string()
 			end,
 			desc = "Tab mode: move to previous string",
+			legend = false,
 		},
 		{
 			key = "<Space>",
@@ -185,6 +196,7 @@ M.defaults = {
 				require("tablature.mode").clear_cell_and_move_left()
 			end,
 			desc = "Tab mode: clear cell",
+			legend = false,
 		},
 		{
 			key = "<Esc>",
@@ -199,6 +211,7 @@ M.defaults = {
 				require("tablature.mode").exit()
 			end,
 			desc = "Tab mode: exit tab mode",
+			legend = false,
 		},
 		{
 			key = "T",

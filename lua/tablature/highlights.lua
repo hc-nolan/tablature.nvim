@@ -42,7 +42,7 @@ function M.clear_tab_legend(bufnr)
 end
 
 --- Build formatted legend lines from a list of {key, desc} mappings.
---- Keys sharing the same description are grouped: "[k1/k2: Desc]", 4 per line.
+--- Keys sharing the same description are grouped: "[k1/k2: Desc]", 3 per line.
 --- An optional strip_prefix string is removed from the start of each desc.
 ---@param mappings {key: string, desc: string}[]
 ---@param strip_prefix string|nil
@@ -51,6 +51,9 @@ local function build_legend_lines(mappings, strip_prefix)
 	local order = {}
 	local groups = {}
 	for _, mapping in ipairs(mappings) do
+		if mapping.legend == false then
+			goto continue
+		end
 		local desc = strip_prefix and mapping.desc:gsub("^" .. vim.pesc(strip_prefix), "") or mapping.desc
 		desc = desc:sub(1, 1):upper() .. desc:sub(2)
 		if not groups[desc] then
@@ -58,6 +61,7 @@ local function build_legend_lines(mappings, strip_prefix)
 			order[#order + 1] = desc
 		end
 		groups[desc][#groups[desc] + 1] = mapping.key
+		::continue::
 	end
 	local parts = {}
 	for _, desc in ipairs(order) do
@@ -65,8 +69,8 @@ local function build_legend_lines(mappings, strip_prefix)
 		parts[#parts + 1] = "[" .. keys .. ": " .. desc .. "]"
 	end
 	local lines = {}
-	for i = 1, #parts, 4 do
-		local count = math.min(4, #parts - i + 1)
+	for i = 1, #parts, 3 do
+		local count = math.min(3, #parts - i + 1)
 		lines[#lines + 1] = "  " .. table.concat(parts, "  ", i, i + count - 1)
 	end
 	return lines
@@ -93,7 +97,7 @@ end
 
 --- Show the chord mode legend below the staff.
 --- Renders a header line with the shape name and fret offset, followed by
---- key hint lines formatted as "[key: Desc]", 4 per line.
+--- key hint lines formatted as "[key: Desc]", 3 per line.
 ---@param chord_ns integer       extmark namespace owned by chord mode
 ---@param bufnr integer
 ---@param staff_top integer
