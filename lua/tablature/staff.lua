@@ -163,56 +163,6 @@ function M.find_staff_top(bufnr, row)
 	return top
 end
 
---- Given a cursor column, compute which measure and beat slot the cursor is in.
---- Returns { measure, beat } both 0-indexed, or nil if not in a grid cell.
---- Assumes all measures have the same beat count (cfg.beats). For variable-beat
---- staffs use buf_col_to_position instead.
----@param col integer   0-indexed column
----@return tablature.staff.position|nil
-function M.col_to_position(col)
-	local cfg = config.options
-	local beats = cfg.beats
-	local sep_width = cfg.measure_sep:len()
-	local label_width = state.label_width
-	local content_start = label_width + sep_width
-
-	if col < content_start then
-		return nil
-	end
-
-	local offset = col - content_start
-	local cell_width = beats * 3 + sep_width -- each measure: beats*3 filler chars + trailing sep
-
-	local measure = math.floor(offset / cell_width)
-	if measure >= cfg.default_measures then
-		return nil
-	end
-	local char_pos = offset % cell_width
-
-	-- If cursor is on the measure separator, bail
-	if char_pos >= beats * 3 then
-		return nil
-	end
-
-	local beat = math.floor(char_pos / 3)
-	return { measure = measure, beat = beat }
-end
-
---- Given a position {measure, beat}, return the 0-indexed column.
---- Assumes all measures have the same beat count (cfg.beats). For variable-beat
---- staffs use buf_position_to_col instead.
----@param pos tablature.staff.position
----@return integer
-function M.position_to_col(pos)
-	local cfg = config.options
-	local beats = cfg.beats
-	local label_width = state.label_width
-	local sep_width = cfg.measure_sep:len()
-	local cell_width = beats * 3 + sep_width
-
-	return label_width + sep_width + pos.measure * cell_width + pos.beat * 3
-end
-
 --- Write a character at (string_idx 0-indexed from top, measure, beat, sub)
 --- into the buffer. Ensures all string lines stay consistent.
 ---@param bufnr integer
@@ -222,7 +172,11 @@ end
 ---@param char string  single character to write
 function M.write_char(bufnr, staff_top, string_idx, pos, char)
 	local row = staff_top + string_idx
-	local col = M.position_to_col(pos)
+	local col = M.position_to_col(bufnr, staff_top, pos)
+	if not col then
+		vim.notify("tablature: Failed to calculate column", 4)
+		return
+	end
 	local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 	if not line then
 		return
@@ -248,7 +202,11 @@ end
 ---@param tens string   first digit character
 ---@param ones string   second digit character
 function M.write_double_digit(bufnr, staff_top, string_idx, pos, tens, ones)
-	local col = M.position_to_col(pos)
+	local col = M.position_to_col(bufnr, staff_top, pos)
+	if not col then
+		vim.notify("tablature: Failed to calculate column", 4)
+		return
+	end
 
 	local row = staff_top + string_idx
 	local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
@@ -334,13 +292,12 @@ function M.get_measure_beats(bufnr, staff_top, measure_idx)
 	return math.floor((sp - pos) / 3)
 end
 
---- Convert a position to a 0-indexed column by scanning the actual buffer content.
---- Unlike position_to_col, this handles measures with different beat counts.
+--- Convert a position to a 0-indexed column by scanning the buffer content.
 ---@param bufnr integer
 ---@param staff_top integer  0-indexed row of top staff line
 ---@param pos tablature.staff.position
----@return integer
-function M.buf_position_to_col(bufnr, staff_top, pos)
+---@return integer|nil
+function M.position_to_col(bufnr, staff_top, pos)
 	local cfg = config.options
 	local sep = cfg.measure_sep
 	local sep_width = #sep
@@ -348,25 +305,26 @@ function M.buf_position_to_col(bufnr, staff_top, pos)
 
 	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
 	if not line then
-		return M.position_to_col(pos)
+		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
+		return nil
 	end
 
 	-- Walk pos.measure measures to find the start of the target measure
 	local scan = find_measure_start(line, pos.measure, label_width, sep, sep_width)
 	if not scan then
-		return M.position_to_col(pos)
+		vim.notify("tablature: Could not find measure start at line " .. line, 4)
+		return nil
 	end
 	-- scan is the 1-indexed start of the target measure; add beat offset
 	return (scan - 1) + pos.beat * 3
 end
 
---- Convert a 0-indexed column to a position by scanning the actual buffer content.
---- Unlike col_to_position, this handles measures with different beat counts.
+--- Convert a 0-indexed column to a position by scanning the buffer content.
 ---@param bufnr integer
 ---@param staff_top integer  0-indexed row of top staff line
----@param col integer  0-indexed column
+---@param col integer|nil  0-indexed column
 ---@return tablature.staff.position|nil
-function M.buf_col_to_position(bufnr, staff_top, col)
+function M.col_to_position(bufnr, staff_top, col)
 	local cfg = config.options
 	local sep = cfg.measure_sep
 	local sep_width = #sep
@@ -374,7 +332,8 @@ function M.buf_col_to_position(bufnr, staff_top, col)
 
 	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
 	if not line then
-		return M.col_to_position(col)
+		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
+		return nil
 	end
 
 	local content_start = label_width + sep_width -- 0-indexed

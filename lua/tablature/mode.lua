@@ -84,8 +84,9 @@ local function get_cursor_context()
 	end
 
 	local string_idx = row - top -- 0-indexed from top
-	local pos = staff.buf_col_to_position(state.bufnr, top, col)
+	local pos = staff.col_to_position(state.bufnr, top, col)
 	if not pos then
+		vim.notify("tablature: Failed to calculate position", 4)
 		return nil
 	end
 
@@ -120,18 +121,22 @@ local function move_to(ctx, new_pos, new_string_idx)
 	si = math.max(0, math.min(num_strings - 1, si))
 
 	local new_row = ctx.staff_top + si + 1 -- 1-indexed for nvim_win_set_cursor
-	local new_col = staff.buf_position_to_col(state.bufnr, state.staff_top, new_pos)
+	local new_col = staff.position_to_col(state.bufnr, state.staff_top, new_pos)
+	if not new_col then
+		vim.notify("tablature: Could not calculate new column position", 4)
+		return
+	end
 
 	vim.api.nvim_win_set_cursor(0, { new_row, new_col })
 
 	-- Update highlights: highlight full measure width
 	local measure_start_pos = { measure = new_pos.measure, beat = 0 }
-	hl.highlight_beat_column(
-		state.bufnr,
-		ctx.staff_top,
-		staff.buf_position_to_col(state.bufnr, state.staff_top, measure_start_pos),
-		beats * 3
-	)
+	local measure_col = staff.position_to_col(state.bufnr, state.staff_top, measure_start_pos)
+	if not measure_col then
+		vim.notify("tablature: Could not calculate measure column position", 4)
+		return
+	end
+	hl.highlight_beat_column(state.bufnr, ctx.staff_top, measure_col, beats * 3)
 	hl.show_mode_indicator(state.bufnr, ctx.staff_top, new_pos)
 end
 
@@ -146,7 +151,11 @@ local function write_fret(char)
 	end
 
 	-- Check if the current cell already has a digit (double-digit fret case)
-	local col = staff.buf_position_to_col(state.bufnr, state.staff_top, ctx.pos)
+	local col = staff.position_to_col(state.bufnr, state.staff_top, ctx.pos)
+	if not col then
+		vim.notify("tablature: Column not found", 4)
+		return
+	end
 	local line = vim.api.nvim_buf_get_lines(
 		state.bufnr,
 		ctx.staff_top + ctx.string_idx,
@@ -312,13 +321,20 @@ function M.enter()
 
 	-- Initial highlight + indicator
 	local col = cursor[2]
-	local pos = staff.buf_col_to_position(bufnr, top, col)
-	if pos then
-		local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
-		local measure_start = { measure = pos.measure, beat = 0 }
-		hl.highlight_beat_column(bufnr, top, staff.buf_position_to_col(bufnr, top, measure_start), measure_beats * 3)
-		hl.show_mode_indicator(bufnr, top, pos)
+	local pos = staff.col_to_position(bufnr, top, col)
+	if not pos then
+		vim.notify("tablature: Failed to calculate position", 4)
+		return
 	end
+	local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
+	local measure_start = { measure = pos.measure, beat = 0 }
+	local measure_col = staff.position_to_col(bufnr, top, measure_start)
+	if not measure_col then
+		vim.notify("tablature: Could not calculate measure column", 4)
+		return
+	end
+	hl.highlight_beat_column(bufnr, top, measure_col, measure_beats * 3)
+	hl.show_mode_indicator(bufnr, top, pos)
 	hl.show_tab_legend(bufnr, top)
 
 	-- Auto-exit if cursor leaves the buffer
@@ -460,7 +476,11 @@ function M.set_beats()
 			-- Clamp cursor beat in case measure shrank
 			local clamped_beat = math.min(ctx.pos.beat, new_beats - 1)
 			local new_pos = { measure = measure_idx, beat = clamped_beat }
-			local new_col = staff.buf_position_to_col(bufnr, staff_top, new_pos)
+			local new_col = staff.position_to_col(bufnr, staff_top, new_pos)
+			if not new_col then
+				vim.notify("tablature: Failed to calculate new column", 4)
+				return
+			end
 			vim.api.nvim_win_set_cursor(0, { ctx.staff_top + ctx.string_idx + 1, new_col })
 		end)
 	end)
