@@ -122,26 +122,27 @@ CONFIGURATION                    *tablature.nvim-tablature.nvim-configuration*
       },
     
       -- Tab mode keybindings. Each entry needs key, func, and desc.
+      -- Set legend = false to hide an entry from the in-buffer legend.
       -- Replacing this table entirely removes all defaults — include any you want to keep.
       tabmode_keys = {
-        { key = "h",       func = function() require("tablature.mode").move_left()             end, desc = "Tab mode: move left" },
-        { key = "<Left>",  func = function() require("tablature.mode").move_left()             end, desc = "Tab mode: move left" },
-        { key = "l",       func = function() require("tablature.mode").move_right()            end, desc = "Tab mode: move right" },
-        { key = "<Right>", func = function() require("tablature.mode").move_right()            end, desc = "Tab mode: move right" },
-        { key = "H",       func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure" },
-        { key = "L",       func = function() require("tablature.mode").move_next_measure()     end, desc = "Tab mode: move to next measure" },
-        { key = "{",       func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure" },
-        { key = "}",       func = function() require("tablature.mode").move_next_measure()     end, desc = "Tab mode: move to next measure" },
-        { key = "j",       func = function() require("tablature.mode").move_next_string()      end, desc = "Tab mode: move to next string" },
-        { key = "k",       func = function() require("tablature.mode").move_previous_string()  end, desc = "Tab mode: move to previous string" },
+        { key = "h",       func = function() require("tablature.mode").move_left()             end, desc = "Tab mode: move left",               legend = false },
+        { key = "<Left>",  func = function() require("tablature.mode").move_left()             end, desc = "Tab mode: move left",               legend = false },
+        { key = "l",       func = function() require("tablature.mode").move_right()            end, desc = "Tab mode: move right",              legend = false },
+        { key = "<Right>", func = function() require("tablature.mode").move_right()            end, desc = "Tab mode: move right",              legend = false },
+        { key = "H",       func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure", legend = false },
+        { key = "L",       func = function() require("tablature.mode").move_next_measure()     end, desc = "Tab mode: move to next measure",    legend = false },
+        { key = "{",       func = function() require("tablature.mode").move_previous_measure() end, desc = "Tab mode: move to previous measure", legend = false },
+        { key = "}",       func = function() require("tablature.mode").move_next_measure()     end, desc = "Tab mode: move to next measure",    legend = false },
+        { key = "j",       func = function() require("tablature.mode").move_next_string()      end, desc = "Tab mode: move to next string",     legend = false },
+        { key = "k",       func = function() require("tablature.mode").move_previous_string()  end, desc = "Tab mode: move to previous string", legend = false },
         { key = "<Space>", func = function() require("tablature.mode").clear_cell()            end, desc = "Tab mode: clear cell" },
-        { key = "<BS>",    func = function() require("tablature.mode").clear_cell_and_move_left() end, desc = "Tab mode: clear cell" },
+        { key = "<BS>",    func = function() require("tablature.mode").clear_cell_and_move_left() end, desc = "Tab mode: clear cell",           legend = false },
         { key = "<Esc>",   func = function() require("tablature.mode").exit()                  end, desc = "Tab mode: exit tab mode" },
-        { key = "q",       func = function() require("tablature.mode").exit()                  end, desc = "Tab mode: exit tab mode" },
+        { key = "q",       func = function() require("tablature.mode").exit()                  end, desc = "Tab mode: exit tab mode",           legend = false },
         { key = "T",       func = function() require("tablature.mode").pick_tuning()           end, desc = "Tab mode: change tuning" },
         { key = "C",       func = function() require("tablature.mode").insert_chord()          end, desc = "Tab mode: insert chord" },
         { key = "B",       func = function() require("tablature.mode").set_beats()             end, desc = "Tab mode: set measure beats" },
-        { key = "N",       func = function() require("tablature.staff").insert_below_cursor(vim.api.nvim_get_current_buf()) end, desc = "Tab mode: insert new measure",}
+        { key = "N",       func = function() require("tablature.staff").insert_below_cursor(vim.api.nvim_get_current_buf()) end, desc = "Tab mode: insert new measure" },
       },
     })
 <
