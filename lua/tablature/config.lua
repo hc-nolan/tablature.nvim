@@ -221,6 +221,14 @@ M.defaults = {
 				require("tablature.mode").set_beats()
 			end,
 		},
+		{
+			key = "N",
+			desc = "Tab mode: insert new measure",
+			func = function()
+				local bufnr = vim.api.nvim_get_current_buf()
+				require("tablature.staff").insert_below_cursor(bufnr)
+			end,
+		},
 	},
 }
 
