@@ -140,15 +140,23 @@ function M.enter(bufnr, initial_shape_name, shapes, deps)
 	end
 
 	-- Tab / S-Tab: cycle through shapes
-	chord_layer.set("<Tab>", function()
-		chord_mode.shape_idx = (chord_mode.shape_idx % #chord_mode.shape_names) + 1
-		preview()
-	end, "Chord mode: next shape")
+	chord_layer.set({
+		key = "<Tab>",
+		func = function()
+			chord_mode.shape_idx = (chord_mode.shape_idx % #chord_mode.shape_names) + 1
+			preview()
+		end,
+		desc = "Chord mode: next shape",
+	})
 
-	chord_layer.set("<S-Tab>", function()
-		chord_mode.shape_idx = ((chord_mode.shape_idx - 2) % #chord_mode.shape_names) + 1
-		preview()
-	end, "Chord mode: previous shape")
+	chord_layer.set({
+		key = "<S-Tab>",
+		func = function()
+			chord_mode.shape_idx = ((chord_mode.shape_idx - 2) % #chord_mode.shape_names) + 1
+			preview()
+		end,
+		desc = "Chord mode: previous shape",
+	})
 
 	-- + / = / - : adjust root fret offset
 	local function offset_up()
@@ -159,29 +167,57 @@ function M.enter(bufnr, initial_shape_name, shapes, deps)
 		chord_mode.offset = math.max(0, chord_mode.offset - 1)
 		preview()
 	end
-	chord_layer.set("+", offset_up, "Chord mode: root fret up")
-	chord_layer.set("=", offset_up, "Chord mode: root fret up")
-	chord_layer.set("-", offset_down, "Chord mode: root fret down")
+	chord_layer.set({
+		key = "+",
+		func = offset_up,
+		desc = "Chord mode: root fret up",
+	})
+	chord_layer.set({
+		key = "=",
+		func = offset_up,
+		desc = "Chord mode: root fret up",
+	})
+	chord_layer.set({
+		key = "-",
+		func = offset_down,
+		desc = "Chord mode: root fret down",
+	})
 
 	-- CR: write the current voicing and stay in chord mode
-	chord_layer.set("<CR>", function()
-		local ctx = ctx_fn()
-		if ctx then
-			local shape_name = chord_mode.shape_names[chord_mode.shape_idx]
-			local shape = chord_mode.shapes[shape_name]
-			local voicing = staff.apply_offset(shape, chord_mode.offset)
-			staff.write_chord(bufnr, ctx.staff_top, ctx.pos, voicing)
-		end
-		preview()
-	end, "Chord mode: insert chord and stay")
+	chord_layer.set({
+		key = "<CR>",
+		func = function()
+			local ctx = ctx_fn()
+			if ctx then
+				local shape_name = chord_mode.shape_names[chord_mode.shape_idx]
+				local shape = chord_mode.shapes[shape_name]
+				local voicing = staff.apply_offset(shape, chord_mode.offset)
+				staff.write_chord(bufnr, ctx.staff_top, ctx.pos, voicing)
+			end
+			preview()
+		end,
+		desc = "Chord mode: insert chord and stay",
+	})
 
-	chord_layer.set("<Esc>", M.exit, "Chord mode: exit to tab mode")
-	chord_layer.set("q", M.exit, "Chord mode: exit to tab mode")
+	chord_layer.set({
+		key = "<Esc>",
+		func = M.exit,
+		desc = "Chord mode: exit to tab mode",
+	})
+	chord_layer.set({
+		key = "q",
+		func = M.exit,
+		desc = "Chord mode: exit to tab mode",
+	})
 
-	chord_layer.set("C", function()
-		M.exit()
-		deps.reenter()
-	end, "Chord mode: re-pick shape")
+	chord_layer.set({
+		key = "C",
+		func = function()
+			M.exit()
+			deps.reenter()
+		end,
+		desc = "Chord mode: re-pick shape",
+	})
 
 	local move_map = {
 		{ key = "h", fn = deps.movement.left },
@@ -194,10 +230,14 @@ function M.enter(bufnr, initial_shape_name, shapes, deps)
 		{ key = "}", fn = deps.movement.next_measure },
 	}
 	for _, m in ipairs(move_map) do
-		chord_layer.set(m.key, function()
-			m.fn()
-			preview()
-		end, "Chord mode: move")
+		chord_layer.set({
+			key = m.key,
+			func = function()
+				m.fn()
+				preview()
+			end,
+			desc = "Chord mode: move",
+		})
 	end
 
 	preview()
