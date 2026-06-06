@@ -184,6 +184,12 @@ local function write_fret(char)
 	else
 		write_single_fret()
 	end
+
+	-- nvim_buf_set_lines on the bottom staff row invalidates the virt_lines
+	-- extmark attached there, so re-draw the legend when writing on that row.
+	if ctx.string_idx == #state.tuning.strings - 1 and not chord.is_active() then
+		hl.show_tab_legend(state.bufnr, state.staff_top)
+	end
 end
 
 --- Fetch cursor context and run fn(ctx, p) where p is a mutable copy of ctx.pos.
