@@ -97,10 +97,10 @@ end)
 describe("staff.position_to_col", function()
 	it("accounts for a wider measure 0 when computing measure 1 column", function()
 		local bufnr, top = make_staff()
-		staff.set_measure_beats(bufnr, top, 0, 8)
 		-- With uniform beats=4: measure 1, beat 0 column would be
 		-- label(1) + sep(1) + 1 measure * (4*3+1) = 2 + 13 = 15
-		local uniform_col = staff.position_to_col({ measure = 1, beat = 0 })
+		local uniform_col = staff.position_to_col(bufnr, top, { measure = 1, beat = 0 })
+		staff.set_measure_beats(bufnr, top, 0, 8)
 		-- With beats=8 for measure 0: col should be larger
 		local buf_col = staff.position_to_col(bufnr, top, { measure = 1, beat = 0 })
 		assert.is_true(buf_col > uniform_col)
