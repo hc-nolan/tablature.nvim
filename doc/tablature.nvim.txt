@@ -85,23 +85,23 @@ CONFIGURATION                    *tablature.nvim-tablature.nvim-configuration*
     require("tablature").setup({
       -- Register <leader>ti / <leader>te
       default_mappings = true,
-
+    
       -- Beat slots per measure (4 = quarter notes, 8 = eighth notes, etc.)
       beats = 4,
-
+    
       -- Measures inserted by <leader>ti
       default_measures = 8,
-
+    
       -- Fill character and measure separator
       filler = "-",
       measure_sep = "|",
-
+    
       -- Tunings available in the picker (strings listed low → high)
       tunings = {
         { name = "Standard", strings = { "E", "A", "D", "G", "B", "e" } },
         { name = "Drop D",   strings = { "D", "A", "D", "G", "B", "e" } },
       },
-
+    
       -- Chord shape library.
       -- "default" shapes appear for all tunings; shapes under a tuning name
       -- appear only when that tuning is active (and override default on collision).
@@ -120,7 +120,7 @@ CONFIGURATION                    *tablature.nvim-tablature.nvim-configuration*
           -- ...
         },
       },
-
+    
       -- Tab mode keybindings. Each entry needs key, func, and desc.
       -- Set legend = false to hide an entry from the in-buffer legend.
       -- Replacing this table entirely removes all defaults — include any you want to keep.
