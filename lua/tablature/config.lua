@@ -236,7 +236,7 @@ M.defaults = {
 		},
 		{
 			key = "N",
-			desc = "Tab mode: insert new measure",
+			desc = "Tab mode: insert new staff line",
 			func = function()
 				local bufnr = vim.api.nvim_get_current_buf()
 				require("tablature.staff").insert_below_cursor(bufnr)

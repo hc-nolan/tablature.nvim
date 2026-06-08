@@ -248,15 +248,68 @@ function M.move_next_measure()
 	end)
 end
 
+--- Jump the cursor to a different staff, updating all state and highlights.
+---@param new_top integer  0-indexed row of target staff's top line
+---@param new_string_idx integer  0-indexed string row within the new staff
+---@param pos tablature.staff.position  desired position (will be clamped to new staff)
+local function jump_to_staff(new_top, new_string_idx, pos)
+	local bufnr = state.bufnr
+	local num_strings = #state.tuning.strings
+
+	-- Clamp measure to what the new staff actually has
+	local measure_count = staff.get_measure_count(bufnr, new_top)
+	local clamped_measure = math.max(0, math.min(measure_count - 1, pos.measure))
+
+	-- Clamp beat to what that measure actually has
+	local beats = staff.get_measure_beats(bufnr, new_top, clamped_measure)
+	local clamped_beat = math.max(0, math.min(beats - 1, pos.beat))
+
+	local clamped_pos = { measure = clamped_measure, beat = clamped_beat }
+
+	-- Clamp string index
+	local si = math.max(0, math.min(num_strings - 1, new_string_idx))
+
+	local col = staff.position_to_col(bufnr, new_top, clamped_pos)
+	if not col then
+		return
+	end
+
+	state.staff_top = new_top
+	vim.api.nvim_win_set_cursor(0, { new_top + si + 1, col })
+
+	local measure_col = staff.position_to_col(bufnr, new_top, { measure = clamped_measure, beat = 0 })
+	if measure_col then
+		hl.highlight_beat_column(bufnr, new_top, measure_col, beats * 3)
+	end
+	hl.show_mode_indicator(bufnr, new_top, clamped_pos)
+	hl.clear_tab_legend(bufnr)
+	hl.show_tab_legend(bufnr, new_top)
+end
+
 function M.move_next_string()
 	with_cursor(function(ctx, p)
-		move_to(ctx, p, ctx.string_idx + 1)
+		local num_strings = #state.tuning.strings
+		if ctx.string_idx == num_strings - 1 then
+			local new_top = staff.find_next_staff(state.bufnr, ctx.staff_top)
+			if new_top then
+				jump_to_staff(new_top, 0, p)
+			end
+		else
+			move_to(ctx, p, ctx.string_idx + 1)
+		end
 	end)
 end
 
 function M.move_previous_string()
 	with_cursor(function(ctx, p)
-		move_to(ctx, p, ctx.string_idx - 1)
+		if ctx.string_idx == 0 then
+			local new_top = staff.find_prev_staff(state.bufnr, ctx.staff_top)
+			if new_top then
+				jump_to_staff(new_top, #state.tuning.strings - 1, p)
+			end
+		else
+			move_to(ctx, p, ctx.string_idx - 1)
+		end
 	end)
 end
 

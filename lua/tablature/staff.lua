@@ -109,6 +109,69 @@ function M.compute_label_width(tuning)
 	return label_width
 end
 
+--- Count the number of measures in a staff by scanning its top line.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@return integer
+function M.get_measure_count(bufnr, staff_top)
+	local cfg = config.options
+	local sep = cfg.measure_sep
+	local label_width = state.label_width
+
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		return 0
+	end
+
+	local count = 0
+	local pos = label_width + 1
+	while true do
+		local sp = line:find(sep, pos, true)
+		if not sp then
+			break
+		end
+		count = count + 1
+		pos = sp + #sep
+	end
+	return count
+end
+
+--- Find the staff_top of the next staff below the given one.
+---@param bufnr integer
+---@param current_staff_top integer  0-indexed row of current staff's top line
+---@return integer|nil
+function M.find_next_staff(bufnr, current_staff_top)
+	local num_strings = #state.tuning.strings
+	local total_lines = vim.api.nvim_buf_line_count(bufnr)
+	local scan = current_staff_top + num_strings
+	while scan < total_lines do
+		local top = M.find_staff_top(bufnr, scan)
+		if top then
+			return top
+		end
+		scan = scan + 1
+	end
+	return nil
+end
+
+--- Find the staff_top of the previous staff above the given one.
+---@param bufnr integer
+---@param current_staff_top integer  0-indexed row of current staff's top line
+---@return integer|nil
+function M.find_prev_staff(bufnr, current_staff_top)
+	local scan = current_staff_top - 1
+	while scan >= 0 do
+		local top = M.find_staff_top(bufnr, scan)
+		-- Must be strictly above current staff: find_staff_top on a blank line
+		-- just above can "look forward" and return current_staff_top itself.
+		if top and top < current_staff_top then
+			return top
+		end
+		scan = scan - 1
+	end
+	return nil
+end
+
 --- Rewrite the string labels of an existing staff block to match a new tuning.
 --- The number of strings in new_tuning must match the existing block.
 ---@param bufnr integer

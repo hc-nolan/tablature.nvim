@@ -122,7 +122,7 @@ require("tablature").setup({
     { key = "T",       func = function() require("tablature.mode").pick_tuning()           end, desc = "Tab mode: change tuning" },
     { key = "C",       func = function() require("tablature.mode").insert_chord()          end, desc = "Tab mode: insert chord" },
     { key = "B",       func = function() require("tablature.mode").set_beats()             end, desc = "Tab mode: set measure beats" },
-    { key = "N",       func = function() require("tablature.staff").insert_below_cursor(vim.api.nvim_get_current_buf()) end, desc = "Tab mode: insert new measure" },
+    { key = "N",       func = function() require("tablature.staff").insert_below_cursor(vim.api.nvim_get_current_buf()) end, desc = "Tab mode: insert new staff line" },
   },
 })
 ```
