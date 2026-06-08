@@ -89,6 +89,12 @@ function M.insert_below_cursor(bufnr)
 	-- Move cursor to top-left editable position of the new staff
 	-- Row becomes (row + 1) in 1-indexed; col is after the string label + beat_sep (col 2, 0-indexed)
 	vim.api.nvim_win_set_cursor(0, { cursor_position, first_col })
+	local hl = require("tablature.highlights")
+	hl.clear_tab_legend(bufnr)
+	local new_top = cursor_position - 1
+	local pos = M.col_to_position(bufnr, new_top, first_col)
+	hl.show_tab_legend(bufnr, new_top)
+	hl.show_mode_indicator(bufnr, new_top, pos)
 end
 
 ---@param tuning tablature.Tuning

@@ -479,6 +479,9 @@ function M.set_beats()
 		end
 		vim.schedule(function()
 			staff.set_measure_beats(bufnr, staff_top, measure_idx, new_beats)
+			if not chord.is_active() then
+				hl.show_tab_legend(bufnr, staff_top)
+			end
 			-- Clamp cursor beat in case measure shrank
 			local clamped_beat = math.min(ctx.pos.beat, new_beats - 1)
 			local new_pos = { measure = measure_idx, beat = clamped_beat }
