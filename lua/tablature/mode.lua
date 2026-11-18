@@ -417,6 +417,23 @@ function M.enter()
 		once = true,
 		callback = auto_exit,
 	})
+
+	-- Auto-exit if the cursor leaves the staff block, or the block stops being a
+	-- valid staff (edited, partially deleted). The keymaps and the legend only
+	-- make sense while the highlighted block is under the cursor.
+	vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged" }, {
+		group = aug,
+		buffer = bufnr,
+		callback = function()
+			if not (state.active and state.bufnr == bufnr) then
+				return
+			end
+			local current = vim.api.nvim_win_get_cursor(0)[1] - 1
+			if staff.find_staff_top(bufnr, current) ~= state.staff_top then
+				auto_exit()
+			end
+		end,
+	})
 end
 
 --- Exit tab editing mode.
