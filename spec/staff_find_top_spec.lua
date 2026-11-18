@@ -44,6 +44,17 @@ describe("staff.find_staff_top", function()
 		assert.is_nil(staff.find_staff_top(bufnr, 0))
 	end)
 
+	it("returns nil one row above a complete block", function()
+		-- A lenient walk-up used to "look forward" and blame the block below.
+		local lines = { "not a staff line" }
+		for _, l in ipairs(make_staff_lines({ "e", "B", "G", "D", "A", "E" }, 1)) do
+			lines[#lines + 1] = l
+		end
+		local bufnr = make_buffer(lines)
+		assert.is_nil(staff.find_staff_top(bufnr, 0))
+		assert.are.equal(1, staff.find_staff_top(bufnr, 1))
+	end)
+
 	it("returns nil when the block has fewer lines than num_strings", function()
 		-- Only 3 lines but tuning expects 6
 		local lines = make_staff_lines({ "e", "B", "G" }, 1)
