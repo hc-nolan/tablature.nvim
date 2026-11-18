@@ -18,10 +18,10 @@ See below for changing the default configuration.
 
 ## Usage
 
-| Key          | Action                                    |
-|--------------|-------------------------------------------|
-| `<leader>ti` | Insert a new tab staff block below cursor |
-| `<leader>te` | Enter tab editing mode                    |
+| Key          | Action                                                              |
+|--------------|---------------------------------------------------------------------|
+| `<leader>ti` | Insert a new tab staff block below cursor                           |
+| `<leader>te` | Enter tab editing mode, inserting a staff if the cursor isn't on one |
 
 Both are `<Plug>` mappings and can be remapped:
 

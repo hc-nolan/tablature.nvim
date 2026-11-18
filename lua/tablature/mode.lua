@@ -355,8 +355,10 @@ local function uninstall_keymaps()
 end
 
 --- Enter tab editing mode on the current buffer.
---- The cursor must already be on a staff line.
-function M.enter()
+--- The cursor must be on a staff line, unless `opts.insert_if_missing` is set,
+--- in which case a new staff is inserted below the cursor first.
+---@param opts {insert_if_missing: boolean}|nil
+function M.enter(opts)
 	if state.active then
 		vim.notify("tablature: already in tab mode", vim.log.levels.WARN)
 		return
@@ -367,6 +369,12 @@ function M.enter()
 	local row = cursor[1] - 1 -- 0-indexed
 
 	local top = staff.find_staff_top(bufnr, row)
+	if not top and opts and opts.insert_if_missing then
+		staff.insert_below_cursor(bufnr)
+		cursor = vim.api.nvim_win_get_cursor(0)
+		row = cursor[1] - 1
+		top = staff.find_staff_top(bufnr, row)
+	end
 	if not top then
 		vim.notify("tablature: cursor is not on a tab staff block", vim.log.levels.WARN)
 		return
