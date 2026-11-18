@@ -254,4 +254,24 @@ function M.set(opts)
 	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
 end
 
+--- Chord shapes usable on a staff of `num_strings` strings in the given tuning.
+--- Merges the tuning-agnostic "default" group with the tuning's own shapes
+--- (the tuning wins on name collisions) and drops shapes whose length does not
+--- match the staff, which would otherwise be written onto the wrong strings.
+---@param tuning_name string
+---@param num_strings integer
+---@return table<string, tablature.ChordShape>
+function M.chord_shapes_for(tuning_name, num_strings)
+	local merged = {}
+	local groups = { M.options.chords.default, M.options.chords[tuning_name] }
+	for _, group in ipairs(groups) do
+		for name, shape in pairs(group or {}) do
+			if #shape == num_strings then
+				merged[name] = shape
+			end
+		end
+	end
+	return merged
+end
+
 return M

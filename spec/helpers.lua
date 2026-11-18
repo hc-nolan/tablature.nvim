@@ -35,6 +35,9 @@ if not _G.vim then
 			nvim_buf_line_count = function(bufnr)
 				return #(buffers[bufnr] or {})
 			end,
+			nvim_buf_is_valid = function(bufnr)
+				return buffers[bufnr] ~= nil
+			end,
 			nvim_buf_get_lines = function(bufnr, start, stop, _)
 				local buf = buffers[bufnr] or {}
 				local result = {}

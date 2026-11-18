@@ -479,21 +479,19 @@ function M.insert_chord()
 		return
 	end
 
-	-- Merge default shapes with active tuning's shapes (tuning takes precedence).
-	local chords = config.options.chords
-	local merged = {}
-	for k, v in pairs(chords.default or {}) do
-		merged[k] = v
-	end
-	for k, v in pairs(chords[state.tuning.name] or {}) do
-		merged[k] = v
-	end
+	local num_strings = #state.tuning.strings
+	-- Shapes that fit this staff only: a 6-string shape on a 4-string staff would
+	-- be written onto the wrong strings.
+	local merged = config.chord_shapes_for(state.tuning.name, num_strings)
 
 	local shape_names = vim.tbl_keys(merged)
 	table.sort(shape_names)
 
 	if #shape_names == 0 then
-		vim.notify("tablature: no chord shapes defined for tuning " .. state.tuning.name, vim.log.levels.WARN)
+		vim.notify(
+			("tablature: no chord shapes for %d strings in tuning %s"):format(num_strings, state.tuning.name),
+			vim.log.levels.WARN
+		)
 		restore_tab_mode(win, cursor)
 		return
 	end
@@ -597,6 +595,10 @@ function M.pick_tuning()
 			end
 		end
 		state.set_tuning(choice)
+		-- A chord session only survives while its shape fits the tuning's strings.
+		if not chord.fits(#choice.strings) then
+			chord.exit()
+		end
 		if staff_top then
 			vim.notify("tablature: tuning changed to " .. choice.name .. " (staff relabeled)", vim.log.levels.INFO)
 		else
