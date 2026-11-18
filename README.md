@@ -40,7 +40,7 @@ Tab mode activates when your cursor is on a staff line. A legend showing all act
 - `0`–`9` — write fret; type a second digit immediately for double-digit frets
 - `<Space>` — clear cell
 - `<BS>` — clear cell and move left
-- `T` — change tuning (relabels the staff in place)
+- `T` — change tuning (on a staff, only tunings with the same string count are offered, and the labels are rewritten in place)
 - `B` — set beat count for the current measure
 - `C` — enter chord mode
 - `<Esc>`/`q` — exit

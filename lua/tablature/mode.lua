@@ -572,7 +572,17 @@ function M.pick_tuning()
 	local staff_top = state.tuning and staff.find_staff_top(bufnr, row)
 	local old_label_width = state.label_width
 
-	vim.ui.select(config.options.tunings, {
+	-- A tuning can only be applied to a staff with the same string count, so
+	-- don't offer tunings that would be refused afterwards. Off a staff, any
+	-- tuning is fair game.
+	local options = {}
+	for _, tuning in ipairs(config.options.tunings) do
+		if not staff_top or #tuning.strings == #state.tuning.strings then
+			options[#options + 1] = tuning
+		end
+	end
+
+	vim.ui.select(options, {
 		prompt = "Select tuning",
 		format_item = function(t)
 			if state.tuning and state.tuning.name == t.name then
@@ -588,11 +598,7 @@ function M.pick_tuning()
 			return
 		end
 		if staff_top then
-			if #choice.strings == #state.tuning.strings then
-				staff.relabel_staff(bufnr, staff_top, old_label_width, choice)
-			else
-				vim.notify("tablature: cannot relabel staff — string count mismatch", vim.log.levels.WARN)
-			end
+			staff.relabel_staff(bufnr, staff_top, old_label_width, choice)
 		end
 		state.set_tuning(choice)
 		-- A chord session only survives while its shape fits the tuning's strings.
