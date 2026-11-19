@@ -428,8 +428,10 @@ function M.enter(opts)
 
 	-- Auto-exit if the cursor leaves the staff block, or the block stops being a
 	-- valid staff (edited, partially deleted). The keymaps and the legend only
-	-- make sense while the highlighted block is under the cursor.
-	vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged" }, {
+	-- make sense while the highlighted block is under the cursor. The I variants
+	-- matter too: insert mode ignores the tab keymaps, so typing below the staff
+	-- would otherwise leave tab mode armed with a stale legend and highlight.
+	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "TextChanged", "TextChangedI" }, {
 		group = aug,
 		buffer = bufnr,
 		callback = function()
