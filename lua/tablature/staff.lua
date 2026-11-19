@@ -405,22 +405,17 @@ function M.position_to_col(bufnr, staff_top, pos)
 	return (scan - 1) + pos.beat * 3
 end
 
---- Convert a 0-indexed column to a position by scanning the buffer content.
----@param bufnr integer
----@param staff_top integer  0-indexed row of top staff line
----@param col integer|nil  0-indexed column
+--- Map a 0-indexed column of one staff line to a beat position.
+--- Returns nil for the string label, the measure separators and anything past
+--- the last separator.
+---@param line string
+---@param col integer
 ---@return tablature.staff.position|nil
-function M.col_to_position(bufnr, staff_top, col)
+local function position_in_line(line, col)
 	local cfg = config.options
 	local sep = cfg.measure_sep
 	local sep_width = #sep
 	local label_width = state.label_width
-
-	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
-	if not line then
-		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
-		return nil
-	end
 
 	local content_start = label_width + sep_width -- 0-indexed
 	if col < content_start then
@@ -453,6 +448,52 @@ function M.col_to_position(bufnr, staff_top, col)
 		scan = sp + sep_width
 	end
 
+	return nil
+end
+
+--- Convert a 0-indexed column to a position by scanning the buffer content.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param col integer|nil  0-indexed column
+---@return tablature.staff.position|nil
+function M.col_to_position(bufnr, staff_top, col)
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
+		return nil
+	end
+	return position_in_line(line, col)
+end
+
+--- Like col_to_position, but a column that isn't on a cell (a separator, or
+--- the string label) snaps to the nearest cell instead of failing: forward
+--- first, then backward. Used when tab mode picks up an existing cursor.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param col integer|nil  0-indexed column
+---@return tablature.staff.position|nil
+function M.snap_col_to_position(bufnr, staff_top, col)
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
+		return nil
+	end
+	local pos = position_in_line(line, col)
+	if pos then
+		return pos
+	end
+	for c = col + 1, #line do
+		pos = position_in_line(line, c)
+		if pos then
+			return pos
+		end
+	end
+	for c = col - 1, 0, -1 do
+		pos = position_in_line(line, c)
+		if pos then
+			return pos
+		end
+	end
 	return nil
 end
 

@@ -380,6 +380,26 @@ function M.enter(opts)
 		return
 	end
 
+	-- Resolve the position before touching any state: a cursor parked on a
+	-- separator has no cell, and bailing out after activating would leave tab
+	-- mode on with nothing highlighted. Snap onto the neighbouring cell instead.
+	local pos = staff.col_to_position(bufnr, top, cursor[2])
+	if not pos then
+		pos = staff.snap_col_to_position(bufnr, top, cursor[2])
+		local snapped_col = pos and staff.position_to_col(bufnr, top, pos)
+		if not snapped_col then
+			vim.notify("tablature: cursor is not on a tab staff grid", vim.log.levels.WARN)
+			return
+		end
+		vim.api.nvim_win_set_cursor(0, { row + 1, snapped_col })
+	end
+	local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
+	local measure_col = staff.position_to_col(bufnr, top, { measure = pos.measure, beat = 0 })
+	if not measure_col then
+		vim.notify("tablature: Could not calculate measure column", 4)
+		return
+	end
+
 	state.active = true
 	state.bufnr = bufnr
 	state.staff_top = top
@@ -387,19 +407,6 @@ function M.enter(opts)
 	install_keymaps(bufnr)
 
 	-- Initial highlight + indicator
-	local col = cursor[2]
-	local pos = staff.col_to_position(bufnr, top, col)
-	if not pos then
-		vim.notify("tablature: Failed to calculate position", 4)
-		return
-	end
-	local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
-	local measure_start = { measure = pos.measure, beat = 0 }
-	local measure_col = staff.position_to_col(bufnr, top, measure_start)
-	if not measure_col then
-		vim.notify("tablature: Could not calculate measure column", 4)
-		return
-	end
 	hl.highlight_beat_column(bufnr, top, measure_col, measure_beats * 3)
 	hl.show_mode_indicator(bufnr, top, pos)
 	hl.show_tab_legend(bufnr, top)
