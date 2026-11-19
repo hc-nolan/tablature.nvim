@@ -319,6 +319,9 @@ function M.clear_cell()
 	end)
 end
 
+--- Clear the cell under the cursor, then move left. (Obsidian's plugin clears
+--- the cell to the left instead; kept as-is here because the cursor and the beat
+--- highlight already mark which cell is being edited.)
 function M.clear_cell_and_move_left()
 	M.clear_cell()
 	M.move_left()
