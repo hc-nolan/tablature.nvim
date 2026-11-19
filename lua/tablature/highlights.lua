@@ -83,6 +83,11 @@ end
 function M.show_tab_legend(bufnr, staff_top)
 	local num_strings = #state.tuning.strings
 	local bottom_row = staff_top + num_strings - 1
+	if not vim.api.nvim_buf_is_valid(bufnr) or bottom_row >= vim.api.nvim_buf_line_count(bufnr) then
+		-- The staff no longer has this many rows (deleted, or a tuning switch
+		-- that no longer fits it), so there is no line to hang the legend on.
+		return
+	end
 	local legend_lines = build_legend_lines(config.options.tabmode_keys, "Tab mode: ")
 	local virt_lines = {}
 	for _, line in ipairs(legend_lines) do
@@ -107,6 +112,9 @@ end
 function M.show_chord_legend(chord_ns, bufnr, staff_top, shape_name, fret_offset, keymaps)
 	local num_strings = #state.tuning.strings
 	local bottom_row = staff_top + num_strings - 1
+	if not vim.api.nvim_buf_is_valid(bufnr) or bottom_row >= vim.api.nvim_buf_line_count(bufnr) then
+		return
+	end
 	local header = string.format("  %s  fret: +%d", shape_name, fret_offset)
 	local legend_lines = build_legend_lines(keymaps, "Chord mode: ")
 	local virt_lines = { { { header, "TablatureMode" } } }

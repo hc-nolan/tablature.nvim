@@ -85,6 +85,12 @@ function M.insert_below_cursor(bufnr)
 		cursor_position = row + 3
 	end
 
+	-- Without a gap after the block, a staff on the next line merges with the
+	-- new one and neither parses as a staff any more.
+	if M.is_staff_line(bufnr, row) then
+		lines[#lines + 1] = ""
+	end
+
 	vim.api.nvim_buf_set_lines(bufnr, row, row, false, lines)
 	-- Move cursor to top-left editable position of the new staff
 	-- Row becomes (row + 1) in 1-indexed; col is after the string label + beat_sep (col 2, 0-indexed)
@@ -193,25 +199,36 @@ function M.relabel_staff(bufnr, staff_top, old_label_width, new_tuning)
 	end
 end
 
+--- Detect whether a line (0-indexed) looks like part of a staff block.
+---@param bufnr integer
+---@param r integer  0-indexed line number
+---@return boolean
+function M.is_staff_line(bufnr, r)
+	if r < 0 or r >= vim.api.nvim_buf_line_count(bufnr) then
+		return false
+	end
+	local label_width = state.label_width
+	local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
+	if not line or #line < label_width + 1 then
+		return false
+	end
+	return line:sub(label_width + 1, label_width + 1) == config.options.measure_sep
+end
+
 --- Detect if the given line number (0-indexed) is part of a staff block.
 --- Returns the 0-indexed line of the staff top, or nil.
 ---@param bufnr integer
 ---@param row integer  0-indexed line number
 ---@return integer|nil
 function M.find_staff_top(bufnr, row)
-	local cfg = config.options
 	local num_strings = #state.tuning.strings
-	local total_lines = vim.api.nvim_buf_line_count(bufnr)
-	local label_width = state.label_width
-	local function is_staff_line(r)
-		if r < 0 or r >= total_lines then
-			return false
-		end
-		local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
-		if not line or #line < label_width + 1 then
-			return false
-		end
-		return line:sub(label_width + 1, label_width + 1) == cfg.measure_sep
+	local is_staff_line = function(r)
+		return M.is_staff_line(bufnr, r)
+	end
+	-- The row itself has to be a staff line, or a row above a block would
+	-- resolve to the block below it.
+	if not is_staff_line(row) then
+		return nil
 	end
 	-- Walk upward to find the top of the block
 	local check = row
@@ -388,22 +405,17 @@ function M.position_to_col(bufnr, staff_top, pos)
 	return (scan - 1) + pos.beat * 3
 end
 
---- Convert a 0-indexed column to a position by scanning the buffer content.
----@param bufnr integer
----@param staff_top integer  0-indexed row of top staff line
----@param col integer|nil  0-indexed column
+--- Map a 0-indexed column of one staff line to a beat position.
+--- Returns nil for the string label, the measure separators and anything past
+--- the last separator.
+---@param line string
+---@param col integer
 ---@return tablature.staff.position|nil
-function M.col_to_position(bufnr, staff_top, col)
+local function position_in_line(line, col)
 	local cfg = config.options
 	local sep = cfg.measure_sep
 	local sep_width = #sep
 	local label_width = state.label_width
-
-	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
-	if not line then
-		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
-		return nil
-	end
 
 	local content_start = label_width + sep_width -- 0-indexed
 	if col < content_start then
@@ -436,6 +448,52 @@ function M.col_to_position(bufnr, staff_top, col)
 		scan = sp + sep_width
 	end
 
+	return nil
+end
+
+--- Convert a 0-indexed column to a position by scanning the buffer content.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param col integer|nil  0-indexed column
+---@return tablature.staff.position|nil
+function M.col_to_position(bufnr, staff_top, col)
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
+		return nil
+	end
+	return position_in_line(line, col)
+end
+
+--- Like col_to_position, but a column that isn't on a cell (a separator, or
+--- the string label) snaps to the nearest cell instead of failing: forward
+--- first, then backward. Used when tab mode picks up an existing cursor.
+---@param bufnr integer
+---@param staff_top integer  0-indexed row of top staff line
+---@param col integer|nil  0-indexed column
+---@return tablature.staff.position|nil
+function M.snap_col_to_position(bufnr, staff_top, col)
+	local line = vim.api.nvim_buf_get_lines(bufnr, staff_top, staff_top + 1, false)[1]
+	if not line then
+		vim.notify("tablature: Staff lines were not found in buffer " .. bufnr, 4)
+		return nil
+	end
+	local pos = position_in_line(line, col)
+	if pos then
+		return pos
+	end
+	for c = col + 1, #line do
+		pos = position_in_line(line, c)
+		if pos then
+			return pos
+		end
+	end
+	for c = col - 1, 0, -1 do
+		pos = position_in_line(line, c)
+		if pos then
+			return pos
+		end
+	end
 	return nil
 end
 

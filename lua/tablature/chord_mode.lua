@@ -95,6 +95,18 @@ function M.is_active()
 	return chord_mode.active
 end
 
+--- Whether the active shape still fits a staff with `num_strings` strings.
+--- Always true when chord mode is not running.
+---@param num_strings integer
+---@return boolean
+function M.fits(num_strings)
+	if not chord_mode.active then
+		return true
+	end
+	local shape = chord_mode.shapes[chord_mode.shape_names[chord_mode.shape_idx]]
+	return shape ~= nil and #shape == num_strings
+end
+
 --- Enter chord mode. Tab mode must already be active.
 --- Installs chord-mode keymaps on top of the existing tab-mode keymaps.
 ---@param bufnr integer
@@ -113,8 +125,22 @@ function M.enter(bufnr, initial_shape_name, shapes, deps)
 		M.exit()
 	end
 
+	-- A shape that doesn't fit the staff would be written onto the wrong
+	-- strings, so only shapes with one entry per string are offered.
+	local num_strings = #state.tuning.strings
+	local fitting = {}
+	for name, shape in pairs(shapes) do
+		if #shape == num_strings then
+			fitting[name] = shape
+		end
+	end
+	shapes = fitting
+
 	local names = vim.tbl_keys(shapes)
 	table.sort(names)
+	if #names == 0 then
+		return
+	end
 
 	chord_mode.active = true
 	chord_layer = deps.new_layer(bufnr)

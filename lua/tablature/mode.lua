@@ -319,6 +319,9 @@ function M.clear_cell()
 	end)
 end
 
+--- Clear the cell under the cursor, then move left. (Obsidian's plugin clears
+--- the cell to the left instead; kept as-is here because the cursor and the beat
+--- highlight already mark which cell is being edited.)
 function M.clear_cell_and_move_left()
 	M.clear_cell()
 	M.move_left()
@@ -355,8 +358,10 @@ local function uninstall_keymaps()
 end
 
 --- Enter tab editing mode on the current buffer.
---- The cursor must already be on a staff line.
-function M.enter()
+--- The cursor must be on a staff line, unless `opts.insert_if_missing` is set,
+--- in which case a new staff is inserted below the cursor first.
+---@param opts {insert_if_missing: boolean}|nil
+function M.enter(opts)
 	if state.active then
 		vim.notify("tablature: already in tab mode", vim.log.levels.WARN)
 		return
@@ -367,8 +372,34 @@ function M.enter()
 	local row = cursor[1] - 1 -- 0-indexed
 
 	local top = staff.find_staff_top(bufnr, row)
+	if not top and opts and opts.insert_if_missing then
+		staff.insert_below_cursor(bufnr)
+		cursor = vim.api.nvim_win_get_cursor(0)
+		row = cursor[1] - 1
+		top = staff.find_staff_top(bufnr, row)
+	end
 	if not top then
 		vim.notify("tablature: cursor is not on a tab staff block", vim.log.levels.WARN)
+		return
+	end
+
+	-- Resolve the position before touching any state: a cursor parked on a
+	-- separator has no cell, and bailing out after activating would leave tab
+	-- mode on with nothing highlighted. Snap onto the neighbouring cell instead.
+	local pos = staff.col_to_position(bufnr, top, cursor[2])
+	if not pos then
+		pos = staff.snap_col_to_position(bufnr, top, cursor[2])
+		local snapped_col = pos and staff.position_to_col(bufnr, top, pos)
+		if not snapped_col then
+			vim.notify("tablature: cursor is not on a tab staff grid", vim.log.levels.WARN)
+			return
+		end
+		vim.api.nvim_win_set_cursor(0, { row + 1, snapped_col })
+	end
+	local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
+	local measure_col = staff.position_to_col(bufnr, top, { measure = pos.measure, beat = 0 })
+	if not measure_col then
+		vim.notify("tablature: Could not calculate measure column", 4)
 		return
 	end
 
@@ -379,19 +410,6 @@ function M.enter()
 	install_keymaps(bufnr)
 
 	-- Initial highlight + indicator
-	local col = cursor[2]
-	local pos = staff.col_to_position(bufnr, top, col)
-	if not pos then
-		vim.notify("tablature: Failed to calculate position", 4)
-		return
-	end
-	local measure_beats = staff.get_measure_beats(bufnr, top, pos.measure)
-	local measure_start = { measure = pos.measure, beat = 0 }
-	local measure_col = staff.position_to_col(bufnr, top, measure_start)
-	if not measure_col then
-		vim.notify("tablature: Could not calculate measure column", 4)
-		return
-	end
 	hl.highlight_beat_column(bufnr, top, measure_col, measure_beats * 3)
 	hl.show_mode_indicator(bufnr, top, pos)
 	hl.show_tab_legend(bufnr, top)
@@ -416,6 +434,25 @@ function M.enter()
 		buffer = bufnr,
 		once = true,
 		callback = auto_exit,
+	})
+
+	-- Auto-exit if the cursor leaves the staff block, or the block stops being a
+	-- valid staff (edited, partially deleted). The keymaps and the legend only
+	-- make sense while the highlighted block is under the cursor. The I variants
+	-- matter too: insert mode ignores the tab keymaps, so typing below the staff
+	-- would otherwise leave tab mode armed with a stale legend and highlight.
+	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "TextChanged", "TextChangedI" }, {
+		group = aug,
+		buffer = bufnr,
+		callback = function()
+			if not (state.active and state.bufnr == bufnr) then
+				return
+			end
+			local current = vim.api.nvim_win_get_cursor(0)[1] - 1
+			if staff.find_staff_top(bufnr, current) ~= state.staff_top then
+				auto_exit()
+			end
+		end,
 	})
 end
 
@@ -462,21 +499,19 @@ function M.insert_chord()
 		return
 	end
 
-	-- Merge default shapes with active tuning's shapes (tuning takes precedence).
-	local chords = config.options.chords
-	local merged = {}
-	for k, v in pairs(chords.default or {}) do
-		merged[k] = v
-	end
-	for k, v in pairs(chords[state.tuning.name] or {}) do
-		merged[k] = v
-	end
+	local num_strings = #state.tuning.strings
+	-- Shapes that fit this staff only: a 6-string shape on a 4-string staff would
+	-- be written onto the wrong strings.
+	local merged = config.chord_shapes_for(state.tuning.name, num_strings)
 
 	local shape_names = vim.tbl_keys(merged)
 	table.sort(shape_names)
 
 	if #shape_names == 0 then
-		vim.notify("tablature: no chord shapes defined for tuning " .. state.tuning.name, vim.log.levels.WARN)
+		vim.notify(
+			("tablature: no chord shapes for %d strings in tuning %s"):format(num_strings, state.tuning.name),
+			vim.log.levels.WARN
+		)
 		restore_tab_mode(win, cursor)
 		return
 	end
@@ -557,7 +592,17 @@ function M.pick_tuning()
 	local staff_top = state.tuning and staff.find_staff_top(bufnr, row)
 	local old_label_width = state.label_width
 
-	vim.ui.select(config.options.tunings, {
+	-- A tuning can only be applied to a staff with the same string count, so
+	-- don't offer tunings that would be refused afterwards. Off a staff, any
+	-- tuning is fair game.
+	local options = {}
+	for _, tuning in ipairs(config.options.tunings) do
+		if not staff_top or #tuning.strings == #state.tuning.strings then
+			options[#options + 1] = tuning
+		end
+	end
+
+	vim.ui.select(options, {
 		prompt = "Select tuning",
 		format_item = function(t)
 			if state.tuning and state.tuning.name == t.name then
@@ -573,13 +618,13 @@ function M.pick_tuning()
 			return
 		end
 		if staff_top then
-			if #choice.strings == #state.tuning.strings then
-				staff.relabel_staff(bufnr, staff_top, old_label_width, choice)
-			else
-				vim.notify("tablature: cannot relabel staff — string count mismatch", vim.log.levels.WARN)
-			end
+			staff.relabel_staff(bufnr, staff_top, old_label_width, choice)
 		end
 		state.set_tuning(choice)
+		-- A chord session only survives while its shape fits the tuning's strings.
+		if not chord.fits(#choice.strings) then
+			chord.exit()
+		end
 		if staff_top then
 			vim.notify("tablature: tuning changed to " .. choice.name .. " (staff relabeled)", vim.log.levels.INFO)
 		else

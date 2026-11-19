@@ -14,8 +14,9 @@ function M.setup(opts)
 	require("tablature.state").set_tuning(tuning)
 end
 
+--- Enter tab mode, inserting a staff below the cursor when it isn't on one.
 M.enter = function()
-	require("tablature.mode").enter()
+	require("tablature.mode").enter({ insert_if_missing = true })
 end
 M.exit = function()
 	require("tablature.mode").exit()

@@ -4,6 +4,9 @@
 if not _G.vim then
 	local buffers = {}
 	local next_bufnr = 1
+	local win_cursor = { 1, 0 }
+	local next_ns = 1
+	local extmarks = {}
 
 	_G.vim = {
 		tbl_deep_extend = function(mode, base, ...)
@@ -25,9 +28,15 @@ if not _G.vim then
 		startswith = function(s, prefix)
 			return s:sub(1, #prefix) == prefix
 		end,
+		pesc = function(s)
+			return (s:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"))
+		end,
 		api = {
 			nvim_buf_line_count = function(bufnr)
 				return #(buffers[bufnr] or {})
+			end,
+			nvim_buf_is_valid = function(bufnr)
+				return buffers[bufnr] ~= nil
 			end,
 			nvim_buf_get_lines = function(bufnr, start, stop, _)
 				local buf = buffers[bufnr] or {}
@@ -48,6 +57,30 @@ if not _G.vim then
 				end
 				buffers[bufnr] = buf
 			end,
+			nvim_win_get_cursor = function(_)
+				return { win_cursor[1], win_cursor[2] }
+			end,
+			nvim_win_set_cursor = function(_, pos)
+				win_cursor = { pos[1], pos[2] }
+			end,
+			nvim_create_namespace = function(_)
+				next_ns = next_ns + 1
+				return next_ns
+			end,
+			nvim_buf_clear_namespace = function(bufnr, ns, _, _)
+				local kept = {}
+				for _, mark in ipairs(extmarks[bufnr] or {}) do
+					if mark.ns ~= ns then
+						kept[#kept + 1] = mark
+					end
+				end
+				extmarks[bufnr] = kept
+			end,
+			nvim_buf_set_extmark = function(bufnr, ns, row, col, opts)
+				extmarks[bufnr] = extmarks[bufnr] or {}
+				extmarks[bufnr][#extmarks[bufnr] + 1] = { ns = ns, row = row, col = col, opts = opts }
+				return #extmarks[bufnr]
+			end,
 		},
 	}
 
@@ -65,6 +98,21 @@ if not _G.vim then
 	-- Helper: read all lines from a fake buffer
 	function _G.buf_lines(bufnr)
 		return buffers[bufnr] or {}
+	end
+
+	-- Helper: place the cursor at a 1-indexed row and 0-indexed column
+	function _G.set_cursor(row, col)
+		win_cursor = { row, col }
+	end
+
+	-- Helper: read the cursor as { row, col } (1-indexed row, 0-indexed col)
+	function _G.buf_cursor()
+		return { win_cursor[1], win_cursor[2] }
+	end
+
+	-- Helper: read the extmarks placed in a buffer
+	function _G.buf_extmarks(bufnr)
+		return extmarks[bufnr] or {}
 	end
 end
 
